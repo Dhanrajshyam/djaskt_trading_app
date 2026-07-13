@@ -87,17 +87,45 @@ INSTALLED_APPS = [
     "ledger",
 ]
 
+# Order matters: each middleware below depends on state set up by the ones
+# above it (session -> auth -> messages), or must run before/after the view
+# for security reasons (SecurityMiddleware first, XFrameOptions last). See
+# https://docs.djangoproject.com/en/6.0/ref/middleware/#middleware-ordering
 MIDDLEWARE = [
+    # Enforces HTTPS redirect, HSTS, and other transport-level security
+    # headers before anything else runs — must be first so no other
+    # middleware/view logic ever executes over an insecure connection.
     "django.middleware.security.SecurityMiddleware",
     # Sets per-request logging context (trace/correlation ID) as early as
     # possible, so it's available for every subsequent middleware, the view/
-    # controller layer, and any log line emitted while handling this request.
+    # controller layer, and any log line emitted while handling this
+    # request. Placed right after SecurityMiddleware so even a request
+    # rejected by later middleware still gets a correlated log trail.
     "middlewares.request_log_context.RequestLogContextMiddleware",
+    # Loads/saves the session (request.session) from the configured session
+    # store. Must run before AuthenticationMiddleware, which depends on
+    # request.session to resolve the logged-in user.
     "django.contrib.sessions.middleware.SessionMiddleware",
+    # Handles common request normalization (e.g. APPEND_SLASH redirects,
+    # forbidden User-Agent blocking). Framework convention places this
+    # early, before CSRF/auth, since it may short-circuit the request
+    # before those checks are worth doing.
     "django.middleware.common.CommonMiddleware",
+    # Enforces CSRF protection on unsafe HTTP methods. Must run before any
+    # view logic executes, and after SessionMiddleware since the CSRF
+    # token round-trips through the session/cookie.
     "django.middleware.csrf.CsrfViewMiddleware",
+    # Resolves request.user from request.session, set up by
+    # SessionMiddleware above. Every middleware/view after this point can
+    # rely on request.user being populated (AnonymousUser if not logged
+    # in).
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Exposes one-time notification messages (django.contrib.messages) to
+    # the next request/template. Depends on SessionMiddleware.
     "django.contrib.messages.middleware.MessageMiddleware",
+    # Sets X-Frame-Options to prevent this app being embedded in a
+    # clickjacking iframe. Placed last since it only touches outgoing
+    # response headers, not request processing.
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -188,6 +216,21 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+# Argon2id (via Argon2PasswordHasher) is OWASP's recommended password
+# hashing algorithm and Django's own docs still list it first when the
+# argon2-cffi dependency is acceptable — stronger memory-hardness against
+# GPU/ASIC cracking than PBKDF2 (Django's zero-dependency default).
+# Existing PBKDF2 hashes (if any) keep verifying correctly and are
+# transparently upgraded to Argon2 on next successful login — no migration
+# needed.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
 
 

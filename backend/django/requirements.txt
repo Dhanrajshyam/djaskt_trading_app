@@ -8,3 +8,4 @@ channels==4.3.2
 channels-redis==4.3.0
 redis==8.0.1
 python-json-logger==4.1.0
+argon2-cffi==25.1.0
