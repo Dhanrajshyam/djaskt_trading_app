@@ -9,6 +9,8 @@ from pathlib import Path
 
 import environ
 
+from extensions.vault import VaultNotConfiguredError, VaultSecretUnavailableError, vault
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
@@ -19,8 +21,24 @@ env = environ.Env(
 environ.Env.read_env(BASE_DIR / ".env")
 
 
+def _get_secret(key: str, *, default=environ.Env.NOTSET):
+    """Resolve a secret, preferring Infisical Vault over `.env`/OS environment.
+
+    Tries Vault first; if it isn't configured (no machine identity set) or
+    the secret can't be retrieved (auth failure, network error, missing
+    key), falls back to `env(key, default=...)` — same behavior as before
+    Vault existed. If neither source has a value and no `default` was
+    given, `env(...)` raises `ImproperlyConfigured`, so the app never boots
+    with an empty or hardcoded secret.
+    """
+    try:
+        return vault.get_secret(key, environment=env("INFISICAL_ENVIRONMENT", default="dev"))
+    except (VaultNotConfiguredError, VaultSecretUnavailableError):
+        return env(key, default=default)
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env("SECRET_KEY")
+SECRET_KEY = _get_secret("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env("DEBUG")
@@ -77,7 +95,9 @@ ASGI_APPLICATION = "django_app.asgi.application"
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    "default": env.db("DATABASE_URL", default="sqlite:///" + str(BASE_DIR / "db.sqlite3")),
+    "default": env.db_url_config(
+        _get_secret("DATABASE_URL", default="sqlite:///" + str(BASE_DIR / "db.sqlite3"))
+    ),
 }
 # ACID-critical writes (SELECT FOR UPDATE inside transaction.atomic) require the
 # ORM to hold a single real connection per request rather than silently reopening one.
@@ -87,7 +107,7 @@ DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
 
 # Redis (shared with the FastAPI market-data service for live price lookups,
 # and used as the Channels layer backend for realtime broadcasts).
-REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+REDIS_URL = _get_secret("REDIS_URL", default="redis://localhost:6379/0")
 
 CHANNEL_LAYERS = {
     "default": {
