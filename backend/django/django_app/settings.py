@@ -110,6 +110,16 @@ MIDDLEWARE = [
     # headers before anything else runs — must be first so no other
     # middleware/view logic ever executes over an insecure connection.
     "django.middleware.security.SecurityMiddleware",
+    # Serves collected static files (including django-ninja's bundled
+    # Swagger UI assets) directly from the ASGI/WSGI app. Needed because
+    # django.contrib.staticfiles's automatic /static/ serving only exists
+    # under manage.py runserver's own dev-only URL patching — it's never
+    # wired up for a plain ASGI app object (e.g. running under uvicorn
+    # directly), so without this, /api/v1/docs 404s on its own JS/CSS.
+    # Placed immediately after SecurityMiddleware per WhiteNoise's own
+    # docs, so static requests are served before hitting session/auth/
+    # logging middleware they don't need.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     # Sets per-request logging context (trace/correlation ID) as early as
     # possible, so it's available for every subsequent middleware, the view/
     # controller layer, and any log line emitted while handling this
@@ -288,6 +298,23 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = "static/"
+# Destination for `manage.py collectstatic` — required for WhiteNoise (see
+# MIDDLEWARE above) to have anything to serve when running outside
+# manage.py runserver's dev-only static handling.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    # WhiteNoise's recommended storage backend: serves pre-compressed
+    # (gzip/brotli) files with cache-busting hashed filenames baked into
+    # the manifest, so static assets can be served with long-lived cache
+    # headers safely.
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -165,8 +165,9 @@ class AuthController:
             return 409, ErrorSchema(detail="An account with this email already exists.")
 
         with transaction.atomic():
+            # username is auto-derived from the email local-part by
+            # UserManager._create_user (accounts.models) — not passed here.
             user = User.objects.create_user(
-                username=payload.email.split("@")[0],
                 email=payload.email,
                 password=payload.password,
                 first_name=payload.first_name,
