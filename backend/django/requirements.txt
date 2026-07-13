@@ -1,0 +1,15 @@
+Django==6.0.7
+django-ninja==1.6.2
+django-ninja-extra==0.31.5
+django-environ==0.14.0
+infisicalsdk==1.0.16
+psycopg[binary]==3.3.4
+channels==4.3.2
+channels-redis==4.3.0
+redis==8.0.1
+python-json-logger==4.1.0
+argon2-cffi==25.1.0
+django-ninja-jwt==5.4.4
+email-validator==2.3.0
+uvicorn==0.51.0
+whitenoise==6.12.0
