@@ -10,8 +10,8 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 import redis
-from django.conf import settings
 
+from extensions.redis_client import redis_manager
 from ledger.exceptions import PriceUnavailableError
 
 logger = logging.getLogger(__name__)
@@ -33,11 +33,16 @@ class PriceCacheService:
 
         Accepting a client via constructor injection (rather than always
         constructing one internally) lets tests supply a fake client without
-        touching a real Redis instance.
+        touching a real Redis instance. When no client is injected, reuses
+        the shared, process-wide client from `extensions.redis_client`
+        instead of building a new one — `PriceCacheService` (and the
+        `TradeExecutionService`/`LedgerOrchestratorService`/`LedgerController`
+        chain above it) is constructed fresh on every REST request, so
+        defaulting to a fresh `redis.Redis.from_url(...)` here would rebuild
+        a whole connection pool per request instead of reusing one for the
+        life of the process.
         """
-        self._redis = redis_client or redis.Redis.from_url(
-            settings.REDIS_URL, decode_responses=True
-        )
+        self._redis = redis_client or redis_manager.get_client()
 
     def get_live_price(self, ticker: str) -> Decimal:
         """Return the current live price for `ticker`.

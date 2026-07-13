@@ -2,7 +2,7 @@
 Django settings for django_app project (Djaskt Ledger & Orchestrator microservice).
 
 Environment-driven configuration — no secrets are hardcoded. See `.env.example`
-for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, REDIS_URL, etc.).
+for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, REDIS_*, etc.).
 """
 
 import logging
@@ -196,7 +196,15 @@ for _db_config in DATABASES.values():
 
 # Redis (shared with the FastAPI market-data service for live price lookups,
 # and used as the Channels layer backend for realtime broadcasts).
-REDIS_URL = _get_secret("REDIS_URL", default="redis://localhost:6379/0")
+# Host/port/db are plain config; only the password is a secret (Vault-first,
+# falling back to .env/OS environment) — same "secret zero" split already
+# used for the database connections above (DB_PASSWORD/REPLICA_DB_PASSWORD).
+_redis_host = env("REDIS_HOST", default="localhost")
+_redis_port = env("REDIS_PORT", default="6379")
+_redis_db = env("REDIS_DB", default="0")
+_redis_password = _get_secret("REDIS_PASSWORD", default="")
+_redis_auth = f":{_redis_password}@" if _redis_password else ""
+REDIS_URL = f"redis://{_redis_auth}{_redis_host}:{_redis_port}/{_redis_db}"
 
 CHANNEL_LAYERS = {
     "default": {

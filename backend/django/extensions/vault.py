@@ -2,7 +2,7 @@
 
 Wraps the official `infisicalsdk` client in a thread-safe singleton
 (`InfisicalVaultManager`) that `django_app/settings.py` uses to fetch
-`SECRET_KEY`, `DB_PASSWORD`/`REPLICA_DB_PASSWORD`, and `REDIS_URL` from
+`SECRET_KEY`, `DB_PASSWORD`/`REPLICA_DB_PASSWORD`, and `REDIS_PASSWORD` from
 Infisical, falling back to `.env`/OS environment variables when Vault isn't
 configured or isn't reachable. This module never hardcodes a secret value
 or falls back to one itself — callers decide what to do when both sources
