@@ -16,9 +16,14 @@ from pydantic import field_validator
 
 
 class TradeRequestSchema(Schema):
-    """Payload for `POST /api/v1/ledger/trade/`."""
+    """Payload for `POST /api/v1/ledger/trade/`.
 
-    portfolio_id: UUID
+    No `portfolio_id` — `Portfolio.user` is a strict one-to-one
+    relationship, so the caller's portfolio is always resolved from
+    `request.user` server-side (see `ledger.services.authorization
+    .get_portfolio_for_user`), never trusted from the request body.
+    """
+
     ticker: str
     trade_type: Literal["BUY", "SELL"]
     quantity: Decimal
@@ -57,9 +62,12 @@ class TradeResponseSchema(Schema):
 
 
 class CashTransferRequestSchema(Schema):
-    """Payload for `POST /api/v1/ledger/cash-transfer/`."""
+    """Payload for `POST /api/v1/ledger/cash-transfer/`.
 
-    portfolio_id: UUID
+    No `portfolio_id` — see `TradeRequestSchema`'s docstring; the same
+    reasoning applies here.
+    """
+
     direction: Literal["CREDIT", "DEBIT"]
     amount: Decimal
     idempotency_key: UUID
@@ -83,6 +91,48 @@ class CashTransferResponseSchema(Schema):
     resulting_balance: Decimal
     idempotency_key: UUID
     is_replay: bool
+
+
+class PositionSchema(Schema):
+    """A single holding within a portfolio, as returned by `GET /portfolio/`."""
+
+    ticker: str
+    quantity: Decimal
+
+
+class PortfolioResponseSchema(Schema):
+    """Response body for `GET /api/v1/ledger/portfolio/`."""
+
+    portfolio_id: UUID
+    cash_balance: Decimal
+    positions: list[PositionSchema]
+
+
+class TradeHistoryItemSchema(Schema):
+    """A single trade entry, as returned by `GET /trades/`.
+
+    Serialized directly from `Trade` model instances (Ninja's ORM-object
+    mode); `trade_id` doesn't match the model's `id` field name, so it's
+    resolved explicitly rather than relying on attribute auto-mapping.
+    """
+
+    trade_id: UUID
+    ticker: str
+    trade_type: str
+    quantity: Decimal
+    price: Decimal
+    total_value: Decimal
+    timestamp: str
+
+    @staticmethod
+    def resolve_trade_id(obj) -> UUID:
+        """Map the model's `id` field to this schema's `trade_id`."""
+        return obj.id
+
+    @staticmethod
+    def resolve_timestamp(obj) -> str:
+        """Serialize the model's `datetime` timestamp as ISO-8601."""
+        return obj.timestamp.isoformat()
 
 
 class ErrorSchema(Schema):

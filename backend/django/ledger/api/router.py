@@ -10,13 +10,17 @@ function-based Router.
 """
 
 from django.http import HttpRequest
-from ninja.security import django_auth
-from ninja_extra import api_controller, http_post
+from ninja_extra import api_controller, http_get, http_post
+from ninja_extra.pagination import LimitOffsetPagination, NinjaPaginationResponseSchema, paginate
 
+from ledger.api.auth import DenylistCheckingJWTAuth
 from ledger.api.schemas import (
     CashTransferRequestSchema,
     CashTransferResponseSchema,
     ErrorSchema,
+    PortfolioResponseSchema,
+    PositionSchema,
+    TradeHistoryItemSchema,
     TradeRequestSchema,
     TradeResponseSchema,
 )
@@ -28,17 +32,19 @@ from ledger.exceptions import (
     PortfolioNotFoundError,
     PriceUnavailableError,
 )
-from ledger.services.authorization import get_owned_portfolio_or_none
+from ledger.models import Trade
+from ledger.services.authorization import get_portfolio_for_user
 from ledger.services.main_service import LedgerOrchestratorService
 
 
-@api_controller("/ledger", tags=["ledger"], auth=django_auth)
+@api_controller("/ledger", tags=["ledger"], auth=DenylistCheckingJWTAuth())
 class LedgerController:
     """Class-based REST controller for the ledger app's HTTP endpoints.
 
-    Requires Django session authentication (`django_auth`) on every action.
-    Each method follows the same shape: authorize, delegate to
-    `LedgerOrchestratorService`, map domain exceptions to HTTP status codes.
+    Requires a valid, non-revoked JWT access token (`DenylistCheckingJWTAuth`)
+    on every action. Each method follows the same shape: resolve the
+    caller's own portfolio, delegate to `LedgerOrchestratorService`, map
+    domain exceptions to HTTP status codes.
     """
 
     def __init__(self) -> None:
@@ -51,7 +57,6 @@ class LedgerController:
             201: TradeResponseSchema,
             200: TradeResponseSchema,
             409: ErrorSchema,
-            403: ErrorSchema,
             404: ErrorSchema,
         },
     )
@@ -59,19 +64,20 @@ class LedgerController:
         """Submit a BUY/SELL trade for the authenticated user's portfolio.
 
         Returns 201 for a newly committed trade, 200 for an idempotent
-        replay, 403 if the caller doesn't own the portfolio, 404 if the
-        portfolio doesn't exist, or 409 for a business-rule violation
-        (insufficient funds/position, stale price, invalid request).
+        replay, 404 if the caller has no portfolio, or 409 for a
+        business-rule violation (insufficient funds/position, stale price,
+        invalid request).
         """
-        # Object-level authorization: a user may only trade on their own
-        # portfolio (OWASP A01 — broken access control).
-        portfolio = get_owned_portfolio_or_none(request.user, payload.portfolio_id)
+        # Portfolio.user is a strict one-to-one relationship — no client-
+        # supplied ID to check ownership of, only "does this user have a
+        # portfolio at all".
+        portfolio = get_portfolio_for_user(request.user)
         if portfolio is None:
-            return 403, ErrorSchema(detail="You do not have access to this portfolio.")
+            return 404, ErrorSchema(detail="No portfolio found for this account.")
 
         try:
             result = self._orchestrator.submit_trade(
-                portfolio_id=payload.portfolio_id,
+                portfolio_id=portfolio.id,
                 ticker=payload.ticker,
                 trade_type=payload.trade_type,
                 quantity=payload.quantity,
@@ -101,13 +107,54 @@ class LedgerController:
         status_code = 200 if result.is_replay else 201
         return status_code, response
 
+    @http_get(
+        "/portfolio/",
+        response={200: PortfolioResponseSchema, 404: ErrorSchema},
+    )
+    def get_portfolio(self, request: HttpRequest):
+        """Return the authenticated user's cash balance and current holdings."""
+        portfolio = get_portfolio_for_user(request.user)
+        if portfolio is None:
+            return 404, ErrorSchema(detail="No portfolio found for this account.")
+
+        positions = [
+            PositionSchema(ticker=p.ticker, quantity=p.quantity)
+            for p in portfolio.positions.all()
+        ]
+        return 200, PortfolioResponseSchema(
+            portfolio_id=portfolio.id,
+            cash_balance=portfolio.cash_balance,
+            positions=positions,
+        )
+
+    @http_get(
+        "/trades/",
+        response={200: NinjaPaginationResponseSchema[TradeHistoryItemSchema]},
+    )
+    @paginate(LimitOffsetPagination)
+    def list_trades(self, request: HttpRequest):
+        """Return the authenticated user's trade history, newest first.
+
+        Paginated via `?limit=&offset=` (django-ninja-extra's built-in
+        `LimitOffsetPagination` — see `ninja_extra.pagination`), rather
+        than hand-rolled, per the app's existing latency/API conventions.
+        Response is wrapped as `{"items": [...], "count": N}` by the
+        pagination decorator.
+        """
+        portfolio = get_portfolio_for_user(request.user)
+        if portfolio is None:
+            return Trade.objects.none()
+        # Trade.Meta.ordering is already "-timestamp"; explicit here for
+        # clarity at the call site (matches the WebSocket consumer's
+        # equivalent query in ledger/realtime/consumers.py).
+        return Trade.objects.filter(portfolio=portfolio).order_by("-timestamp")
+
     @http_post(
         "/cash-transfer/",
         response={
             201: CashTransferResponseSchema,
             200: CashTransferResponseSchema,
             409: ErrorSchema,
-            403: ErrorSchema,
             404: ErrorSchema,
         },
     )
@@ -115,17 +162,17 @@ class LedgerController:
         """Submit a CREDIT (deposit) or DEBIT (withdrawal) for the authenticated user's portfolio.
 
         Returns 201 for a newly committed transfer, 200 for an idempotent
-        replay, 403 if the caller doesn't own the portfolio, 404 if the
-        portfolio doesn't exist, or 409 for a business-rule violation
-        (insufficient funds for a DEBIT, invalid request).
+        replay, 404 if the caller has no portfolio, or 409 for a
+        business-rule violation (insufficient funds for a DEBIT, invalid
+        request).
         """
-        portfolio = get_owned_portfolio_or_none(request.user, payload.portfolio_id)
+        portfolio = get_portfolio_for_user(request.user)
         if portfolio is None:
-            return 403, ErrorSchema(detail="You do not have access to this portfolio.")
+            return 404, ErrorSchema(detail="No portfolio found for this account.")
 
         try:
             result = self._orchestrator.submit_cash_transfer(
-                portfolio_id=payload.portfolio_id,
+                portfolio_id=portfolio.id,
                 direction=payload.direction,
                 amount=payload.amount,
                 idempotency_key=payload.idempotency_key,

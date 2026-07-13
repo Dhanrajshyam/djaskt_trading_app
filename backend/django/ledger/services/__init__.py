@@ -10,5 +10,7 @@ realtime layers per the project's clean-architecture standard. Contains:
   realtime layers call; coordinates the above and triggers WebSocket
   broadcasts after a successful commit.
 - `authorization.get_owned_portfolio_or_none` — shared per-user data
-  isolation helper used by both the REST and WebSocket layers.
+  isolation helper used by the WebSocket layer (client-supplied portfolio ID).
+- `authorization.get_portfolio_for_user` / `create_user_portfolio` — resolve/
+  create a user's own portfolio, used by the REST layer and signup flow.
 """

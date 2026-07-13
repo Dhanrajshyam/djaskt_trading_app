@@ -6,6 +6,7 @@ for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, 
 """
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -84,8 +85,21 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "channels",
     "ninja",
+    "ninja_extra",
+    # No "ninja_jwt.token_blacklist" — token revocation uses a custom Redis
+    # denylist (extensions/token_denylist.py) instead of ninja_jwt's
+    # DB-backed blacklist models, so that sub-app is intentionally omitted.
+    "ninja_jwt",
+    "accounts",
     "ledger",
 ]
+
+# accounts.User is the custom user model (email is the login identifier,
+# not username — see accounts/models.py). Must be set before the first
+# migration touching auth is ever applied; this project's DB has 0 users/0
+# portfolios at the time this was introduced, so there's no post-hoc
+# AUTH_USER_MODEL migration to reconcile.
+AUTH_USER_MODEL = "accounts.User"
 
 # Order matters: each middleware below depends on state set up by the ones
 # above it (session -> auth -> messages), or must run before/after the view
@@ -240,6 +254,25 @@ PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
     "django.contrib.auth.hashers.ScryptPasswordHasher",
 ]
+
+
+# JWT authentication (django-ninja-jwt)
+# https://eadwincode.github.io/django-ninja-jwt/settings/
+#
+# ACCESS_TOKEN_LIFETIME below is a fallback only — the actual access token
+# expiration is computed dynamically per login (seconds until UTC midnight,
+# capped at 24h) by accounts.api.EmailTokenObtainPairInputSchema.get_token(),
+# since ninja_jwt's own lifetime setting only accepts a fixed timedelta.
+# ROTATE_REFRESH_TOKENS/BLACKLIST_AFTER_ROTATION are NOT set here: this app
+# uses a custom Redis denylist (extensions/token_denylist.py) for
+# revocation, checked on every authenticated request via
+# ledger.api.auth.DenylistCheckingJWTAuth — not ninja_jwt's DB-backed
+# blacklist app (which isn't installed; see INSTALLED_APPS above).
+NINJA_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "TOKEN_OBTAIN_PAIR_INPUT_SCHEMA": "accounts.api.EmailTokenObtainPairInputSchema",
+}
 
 
 # Internationalization

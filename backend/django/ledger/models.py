@@ -118,8 +118,15 @@ class Trade(models.Model):
         Lightweight application-layer enforcement of immutability — a Trade
         may only ever be inserted, never updated, so the ledger's audit
         trail can be trusted without relying solely on DB-level permissions.
+
+        Checks `self._state.adding` rather than `self.pk is not None`: `id`
+        is a client-generated `UUIDField(default=uuid.uuid4)`, so `self.pk`
+        is already set on a brand-new, never-saved instance — `pk is not
+        None` would incorrectly reject every insert. `_state.adding` is
+        Django's own signal for "this instance hasn't been saved yet,
+        regardless of whether its PK was assigned client-side or by the DB.
         """
-        if self.pk is not None:
+        if not self._state.adding:
             raise ValueError("Ledger entries (Trades) are immutable and cannot be modified.")
         super().save(*args, **kwargs)
 
@@ -164,9 +171,11 @@ class CashTransaction(models.Model):
     def save(self, *args, **kwargs):
         """Persist the transaction, rejecting any attempt to modify an existing row.
 
-        Mirrors `Trade.save()`'s immutability enforcement so cash movement
-        history is as trustworthy an audit trail as the trade ledger.
+        Mirrors `Trade.save()`'s immutability enforcement (including the
+        `_state.adding` check, not `pk is not None` — see that method's
+        docstring for why) so cash movement history is as trustworthy an
+        audit trail as the trade ledger.
         """
-        if self.pk is not None:
+        if not self._state.adding:
             raise ValueError("Cash transactions are immutable and cannot be modified.")
         super().save(*args, **kwargs)

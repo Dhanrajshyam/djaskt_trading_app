@@ -15,13 +15,15 @@ from django.urls import path
 from ninja.errors import ValidationError
 from ninja_extra import NinjaExtraAPI
 
+from accounts.api import AuthController
+from django_app.health import liveness, readiness
 from ledger.api.router import LedgerController
 from ledger.exceptions import LedgerServiceError
 
 logger = logging.getLogger(__name__)
 
 api = NinjaExtraAPI(title="Djaskt Ledger API", version="1.0.0")
-api.register_controllers(LedgerController)
+api.register_controllers(AuthController, LedgerController)
 
 
 def _register_exception_handlers(api: NinjaExtraAPI) -> None:
@@ -71,5 +73,7 @@ _register_exception_handlers(api)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("healthz", liveness, name="liveness"),
+    path("readyz", readiness, name="readiness"),
     path("api/v1/", api.urls),
 ]
