@@ -6,9 +6,12 @@ over the socket.
 """
 
 import json
+import logging
 
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+
+logger = logging.getLogger(__name__)
 
 TRADE_HISTORY_LIMIT = 50
 
@@ -46,17 +49,30 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         user = self.scope.get("user")
 
         if user is None or not user.is_authenticated:
+            logger.warning(
+                "WebSocket connection rejected: unauthenticated.",
+                extra={"portfolio_id": self.portfolio_id},
+            )
             await self.close(code=4401)
             return
 
         portfolio = await self._get_owned_portfolio(user, self.portfolio_id)
         if portfolio is None:
+            logger.warning(
+                "WebSocket connection rejected: portfolio not found or not owned by user.",
+                extra={"portfolio_id": self.portfolio_id, "user_id": user.id},
+            )
             await self.close(code=4403)
             return
 
         self.group_name = portfolio_group_name(self.portfolio_id)
+        self.user_id = user.id
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        logger.info(
+            "WebSocket connected.",
+            extra={"portfolio_id": self.portfolio_id, "user_id": self.user_id},
+        )
 
         # Newest-first trade history snapshot, sent once on connect so the
         # client has context before any live "portfolio.update" broadcasts
@@ -69,6 +85,14 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         group_name = getattr(self, "group_name", None)
         if group_name:
             await self.channel_layer.group_discard(group_name, self.channel_name)
+            logger.info(
+                "WebSocket disconnected.",
+                extra={
+                    "portfolio_id": getattr(self, "portfolio_id", None),
+                    "user_id": getattr(self, "user_id", None),
+                    "close_code": close_code,
+                },
+            )
 
     async def portfolio_update(self, event):
         """Handler for `type: "portfolio.update"` group_send messages."""

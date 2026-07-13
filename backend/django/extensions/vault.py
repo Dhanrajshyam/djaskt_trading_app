@@ -8,12 +8,15 @@ reachable. This module never hardcodes a secret value or falls back to one
 itself — callers decide what to do when both sources come up empty.
 """
 
+import logging
 import os
 import threading
 from typing import Optional
 
 from infisical_sdk import InfisicalSDKClient
 from infisical_sdk.infisical_requests import InfisicalError
+
+logger = logging.getLogger(__name__)
 
 
 class VaultNotConfiguredError(Exception):
@@ -103,9 +106,20 @@ class InfisicalVaultManager:
                     client_id=self.client_id, client_secret=self.client_secret
                 )
             except InfisicalError as exc:
+                # Never log client_secret or any secret value — only
+                # identifiers and outcomes (OWASP A09 / sensitive data
+                # exposure).
+                logger.error(
+                    "Vault authentication failed.",
+                    extra={"vault_url": self.vault_url},
+                )
                 raise VaultSecretUnavailableError(
                     f"Failed to authenticate with Infisical Vault: {exc}"
                 ) from exc
+            logger.info(
+                "Authenticated with Infisical Vault.",
+                extra={"vault_url": self.vault_url},
+            )
             self._authenticated = True
 
     def get_secret(self, secret_name: str, environment: str | None = None) -> str:
@@ -129,11 +143,19 @@ class InfisicalVaultManager:
         except InfisicalError:
             # Defensive re-auth: force a fresh login once, in case the
             # cached token expired, then retry a single time.
+            logger.warning(
+                "Secret fetch failed; retrying after a fresh Vault login.",
+                extra={"secret_name": secret_name},
+            )
             self._authenticated = False
             self._authenticate()
             try:
                 return self._fetch(secret_name, environment)
             except InfisicalError as exc:
+                logger.error(
+                    "Secret unavailable in Vault after retry.",
+                    extra={"secret_name": secret_name},
+                )
                 raise VaultSecretUnavailableError(
                     f"Secret '{secret_name}' not found or unreachable in Vault: {exc}"
                 ) from exc

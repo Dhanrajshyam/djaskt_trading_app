@@ -5,10 +5,12 @@ Environment-driven configuration — no secrets are hardcoded. See `.env.example
 for the variables this file expects at runtime (SECRET_KEY, DATABASE_URL, REDIS_URL, etc.).
 """
 
+import logging
 from pathlib import Path
 
 import environ
 
+from extensions.logger import configure_logging
 from extensions.vault import VaultNotConfiguredError, VaultSecretUnavailableError, vault
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +21,25 @@ env = environ.Env(
 # Reads a .env file if present; in containerized/production deployments these
 # are expected to be injected directly as real environment variables instead.
 environ.Env.read_env(BASE_DIR / ".env")
+
+# Prevent django.setup() from applying its own default logging dictConfig
+# after this module finishes importing — that default config creates a
+# non-propagating "django.server" logger (used for runserver's access log)
+# with its own plain-text handler, which would silently bypass the ECS
+# JSON setup below for that one logger. Setting this to None means Django
+# never calls dictConfig on our behalf, so configure_logging()'s root
+# logger setup applies uniformly to every logger, including Django's own.
+LOGGING_CONFIG = None
+
+# Structured ECS JSON logging, set up before anything else logs (including
+# the secret-resolution calls below), so every log line from process start
+# onward is consistently formatted and ELK-ingestible.
+configure_logging(
+    service_name="djaskt-ledger",
+    service_version="1.0.0",
+    environment=env("DJANGO_ENV", default="development"),
+)
+logger = logging.getLogger(__name__)
 
 
 def _get_secret(key: str, *, default=environ.Env.NOTSET):
@@ -32,8 +53,14 @@ def _get_secret(key: str, *, default=environ.Env.NOTSET):
     with an empty or hardcoded secret.
     """
     try:
-        return vault.get_secret(key, environment=env("INFISICAL_ENVIRONMENT", default="dev"))
-    except (VaultNotConfiguredError, VaultSecretUnavailableError):
+        value = vault.get_secret(key, environment=env("INFISICAL_ENVIRONMENT", default="dev"))
+        logger.info("Resolved secret from Vault.", extra={"secret_name": key})
+        return value
+    except (VaultNotConfiguredError, VaultSecretUnavailableError) as exc:
+        logger.info(
+            "Falling back to .env/OS environment for secret.",
+            extra={"secret_name": key, "reason": type(exc).__name__},
+        )
         return env(key, default=default)
 
 
@@ -62,6 +89,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Sets per-request logging context (trace/correlation ID) as early as
+    # possible, so it's available for every subsequent middleware, the view/
+    # controller layer, and any log line emitted while handling this request.
+    "middlewares.request_log_context.RequestLogContextMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

@@ -5,6 +5,7 @@ this module's only job is to apply a trade to a Portfolio/Position pair with
 strict correctness guarantees under concurrency.
 """
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
@@ -19,6 +20,8 @@ from ledger.exceptions import (
 )
 from ledger.models import Portfolio, Position, Trade
 from ledger.services.price_service import PriceCacheService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -85,6 +88,14 @@ class TradeExecutionService:
         # never contend for the same row locks as a fresh trade.
         existing_trade = Trade.objects.filter(idempotency_key=idempotency_key).first()
         if existing_trade is not None:
+            logger.info(
+                "Idempotent trade replay detected; returning existing trade.",
+                extra={
+                    "portfolio_id": str(portfolio_id),
+                    "ticker": ticker,
+                    "idempotency_key": str(idempotency_key),
+                },
+            )
             return TradeResult(trade=existing_trade, is_replay=True)
 
         # Fetch the live price before opening the transaction — no DB lock
@@ -99,12 +110,25 @@ class TradeExecutionService:
             try:
                 portfolio = Portfolio.objects.select_for_update().get(id=portfolio_id)
             except Portfolio.DoesNotExist as exc:
+                logger.warning(
+                    "Trade rejected: portfolio not found.",
+                    extra={"portfolio_id": str(portfolio_id), "ticker": ticker},
+                )
                 raise PortfolioNotFoundError(
                     f"Portfolio {portfolio_id} does not exist."
                 ) from exc
 
             if trade_type == Trade.TradeType.BUY:
                 if portfolio.cash_balance < total_value:
+                    logger.warning(
+                        "Trade rejected: insufficient funds.",
+                        extra={
+                            "portfolio_id": str(portfolio_id),
+                            "ticker": ticker,
+                            "cash_balance": str(portfolio.cash_balance),
+                            "total_value": str(total_value),
+                        },
+                    )
                     raise InsufficientFundsError(
                         "Insufficient funds to execute buy order."
                     )
@@ -126,6 +150,15 @@ class TradeExecutionService:
                     .first()
                 )
                 if position is None or position.quantity < quantity:
+                    logger.warning(
+                        "Trade rejected: insufficient position.",
+                        extra={
+                            "portfolio_id": str(portfolio_id),
+                            "ticker": ticker,
+                            "held_quantity": str(position.quantity if position else Decimal("0")),
+                            "requested_quantity": str(quantity),
+                        },
+                    )
                     raise InsufficientPositionError(
                         f"Insufficient quantity of {ticker} to sell."
                     )
@@ -146,4 +179,16 @@ class TradeExecutionService:
                 idempotency_key=idempotency_key,
             )
 
+        logger.info(
+            "Trade committed.",
+            extra={
+                "trade_id": str(trade.id),
+                "portfolio_id": str(portfolio_id),
+                "ticker": ticker,
+                "trade_type": trade_type,
+                "quantity": str(quantity),
+                "price": str(price),
+                "total_value": str(total_value),
+            },
+        )
         return TradeResult(trade=trade, is_replay=False)

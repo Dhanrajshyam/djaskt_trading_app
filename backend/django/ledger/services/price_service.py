@@ -6,12 +6,15 @@ through the shared Redis keyspace, matching the system architecture diagram.
 """
 
 import json
+import logging
 from decimal import Decimal, InvalidOperation
 
 import redis
 from django.conf import settings
 
 from ledger.exceptions import PriceUnavailableError
+
+logger = logging.getLogger(__name__)
 
 PRICE_KEY_TEMPLATE = "TICKER:{ticker}:PRICE"
 
@@ -40,13 +43,27 @@ class PriceCacheService:
         """Return the current live price for `ticker`.
 
         Raises `PriceUnavailableError` if the price key is missing (never
-        written or expired past its 10-second TTL), malformed, or
-        non-positive — a trade must never execute against stale or invalid
-        market data.
+        written or expired past its 10-second TTL), malformed, non-positive,
+        or if Redis itself is unreachable — a trade must never execute
+        against stale, invalid, or unconfirmed market data.
         """
         key = PRICE_KEY_TEMPLATE.format(ticker=ticker.upper())
-        raw = self._redis.get(key)
+        try:
+            raw = self._redis.get(key)
+        except redis.RedisError as exc:
+            logger.warning(
+                "Price cache unreachable; Redis connection failed.",
+                extra={"ticker": ticker},
+            )
+            raise PriceUnavailableError(
+                f"Price cache unreachable while looking up '{ticker}'."
+            ) from exc
+
         if raw is None:
+            logger.warning(
+                "No live price available (missing or expired cache entry).",
+                extra={"ticker": ticker},
+            )
             raise PriceUnavailableError(
                 f"No live price available for '{ticker}' (missing or expired cache entry)."
             )
@@ -55,11 +72,19 @@ class PriceCacheService:
             payload = json.loads(raw)
             price = Decimal(str(payload["price"]))
         except (json.JSONDecodeError, KeyError, InvalidOperation, TypeError) as exc:
+            logger.warning(
+                "Malformed price payload in cache.",
+                extra={"ticker": ticker},
+            )
             raise PriceUnavailableError(
                 f"Malformed price payload for '{ticker}' in cache."
             ) from exc
 
         if price <= 0:
+            logger.warning(
+                "Invalid non-positive price cached.",
+                extra={"ticker": ticker, "price": str(price)},
+            )
             raise PriceUnavailableError(f"Invalid non-positive price cached for '{ticker}'.")
 
         return price

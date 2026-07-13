@@ -7,6 +7,7 @@ outside any lock, then select_for_update() + atomic() around the mutation
 and the immutable ledger write.
 """
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
@@ -19,6 +20,8 @@ from ledger.exceptions import (
     PortfolioNotFoundError,
 )
 from ledger.models import CashTransaction, Portfolio
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -65,12 +68,24 @@ class CashTransferService:
         # Idempotency check happens outside any lock, matching TradeExecutionService.
         existing = CashTransaction.objects.filter(idempotency_key=idempotency_key).first()
         if existing is not None:
+            logger.info(
+                "Idempotent cash transfer replay detected; returning existing transaction.",
+                extra={
+                    "portfolio_id": str(portfolio_id),
+                    "direction": direction,
+                    "idempotency_key": str(idempotency_key),
+                },
+            )
             return CashTransferResult(transaction=existing, is_replay=True)
 
         with transaction.atomic():
             try:
                 portfolio = Portfolio.objects.select_for_update().get(id=portfolio_id)
             except Portfolio.DoesNotExist as exc:
+                logger.warning(
+                    "Cash transfer rejected: portfolio not found.",
+                    extra={"portfolio_id": str(portfolio_id), "direction": direction},
+                )
                 raise PortfolioNotFoundError(
                     f"Portfolio {portfolio_id} does not exist."
                 ) from exc
@@ -79,6 +94,14 @@ class CashTransferService:
                 portfolio.cash_balance += amount
             else:  # DEBIT
                 if portfolio.cash_balance < amount:
+                    logger.warning(
+                        "Cash transfer rejected: insufficient funds for withdrawal.",
+                        extra={
+                            "portfolio_id": str(portfolio_id),
+                            "cash_balance": str(portfolio.cash_balance),
+                            "amount": str(amount),
+                        },
+                    )
                     raise InsufficientFundsError(
                         "Insufficient funds to complete withdrawal."
                     )
@@ -94,4 +117,14 @@ class CashTransferService:
                 idempotency_key=idempotency_key,
             )
 
+        logger.info(
+            "Cash transfer committed.",
+            extra={
+                "transaction_id": str(cash_transaction.id),
+                "portfolio_id": str(portfolio_id),
+                "direction": direction,
+                "amount": str(amount),
+                "resulting_balance": str(cash_transaction.resulting_balance),
+            },
+        )
         return CashTransferResult(transaction=cash_transaction, is_replay=False)

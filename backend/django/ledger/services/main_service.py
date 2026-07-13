@@ -8,6 +8,7 @@ services later (e.g. compliance checks, notifications, audit logging)
 without changing the contract layer.
 """
 
+import logging
 from decimal import Decimal
 from uuid import UUID
 
@@ -18,6 +19,8 @@ from ledger.models import CashTransaction, Portfolio, Position, Trade
 from ledger.realtime.consumers import portfolio_group_name
 from ledger.services.cash_service import CashTransferResult, CashTransferService
 from ledger.services.trade_service import TradeExecutionService, TradeResult
+
+logger = logging.getLogger(__name__)
 
 
 class LedgerOrchestratorService:
@@ -70,7 +73,7 @@ class LedgerOrchestratorService:
         # reflects state the client (and any subscribed sockets) already saw.
         if not result.is_replay:
             self._broadcast_portfolio_update(
-                result.trade.portfolio_id, latest_trade=result.trade
+                result.trade.portfolio, latest_trade=result.trade
             )
 
         return result
@@ -99,7 +102,7 @@ class LedgerOrchestratorService:
 
         if not result.is_replay:
             self._broadcast_portfolio_update(
-                result.transaction.portfolio_id,
+                result.transaction.portfolio,
                 latest_cash_transaction=result.transaction,
             )
 
@@ -107,12 +110,17 @@ class LedgerOrchestratorService:
 
     @staticmethod
     def _broadcast_portfolio_update(
-        portfolio_id: UUID,
+        portfolio: Portfolio,
         *,
         latest_trade: Trade | None = None,
         latest_cash_transaction: CashTransaction | None = None,
     ) -> None:
         """Broadcast the portfolio's current state to its WebSocket group.
+
+        Takes the already-loaded `Portfolio` instance from the calling
+        service (rather than re-fetching by ID) to avoid a redundant query —
+        `TradeExecutionService`/`CashTransferService` both already hold the
+        row they just mutated inside the same request.
 
         Sends the resulting cash balance and full position list, plus
         whichever of `latest_trade`/`latest_cash_transaction` triggered this
@@ -123,16 +131,19 @@ class LedgerOrchestratorService:
         """
         channel_layer = get_channel_layer()
         if channel_layer is None:
+            logger.warning(
+                "Skipped portfolio broadcast: no channel layer configured.",
+                extra={"portfolio_id": str(portfolio.id)},
+            )
             return
 
-        portfolio = Portfolio.objects.get(id=portfolio_id)
         positions = [
             {"ticker": p.ticker, "quantity": str(p.quantity)}
             for p in Position.objects.filter(portfolio=portfolio)
         ]
 
         payload = {
-            "portfolio_id": str(portfolio_id),
+            "portfolio_id": str(portfolio.id),
             "cash_balance": str(portfolio.cash_balance),
             "positions": positions,
         }
@@ -158,6 +169,10 @@ class LedgerOrchestratorService:
             }
 
         async_to_sync(channel_layer.group_send)(
-            portfolio_group_name(portfolio_id),
+            portfolio_group_name(portfolio.id),
             {"type": "portfolio.update", "payload": payload},
+        )
+        logger.debug(
+            "Broadcast portfolio update.",
+            extra={"portfolio_id": str(portfolio.id)},
         )
