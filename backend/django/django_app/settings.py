@@ -2,7 +2,7 @@
 Django settings for django_app project (Djaskt Ledger & Orchestrator microservice).
 
 Environment-driven configuration — no secrets are hardcoded. See `.env.example`
-for the variables this file expects at runtime (SECRET_KEY, DATABASE_URL, REDIS_URL, etc.).
+for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, REDIS_URL, etc.).
 """
 
 import logging
@@ -124,16 +124,46 @@ ASGI_APPLICATION = "django_app.asgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# Two logical connections are defined: "default" (primary — read/write, the
+# ACID-critical system of record) and "replica" (read replica — read-only
+# reporting/analytics queries). Only the password is Vault-backed per
+# connection; host/port/name/user are plain config, not secrets. For now
+# "replica" points at the same physical database as "default" (no read
+# replica has been provisioned yet) — once one exists, only the REPLICA_DB_*
+# env vars / Vault secret name need to change, no code here does.
+
+
+def _build_database_config(*, prefix: str, secret_name: str) -> dict:
+    """Build a Django DATABASES entry from discrete env vars + a Vault-backed password.
+
+    `prefix` namespaces the plain (non-secret) connection parameters in
+    `.env` (e.g. "DB" -> DB_HOST/DB_PORT/DB_NAME/DB_USER). `secret_name` is
+    the key looked up via `_get_secret` (Vault first, `.env` fallback) for
+    the password alone — the one part of a DB connection that must never be
+    plain config in a committed file.
+    """
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "HOST": env(f"{prefix}_HOST", default="localhost"),
+        "PORT": env(f"{prefix}_PORT", default="5432"),
+        "NAME": env(f"{prefix}_NAME", default="djaskt_ledger"),
+        "USER": env(f"{prefix}_USER", default="djaskt"),
+        "PASSWORD": _get_secret(secret_name, default="djaskt"),
+    }
+
 
 DATABASES = {
-    "default": env.db_url_config(
-        _get_secret("DATABASE_URL", default="sqlite:///" + str(BASE_DIR / "db.sqlite3"))
-    ),
+    "default": _build_database_config(prefix="DB", secret_name="DB_PASSWORD"),
+    # TODO: point at a dedicated read-replica host once one is provisioned —
+    # currently the same physical database as "default".
+    "replica": _build_database_config(prefix="REPLICA_DB", secret_name="REPLICA_DB_PASSWORD"),
 }
 # ACID-critical writes (SELECT FOR UPDATE inside transaction.atomic) require the
 # ORM to hold a single real connection per request rather than silently reopening one.
-DATABASES["default"]["ATOMIC_REQUESTS"] = False
-DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
+for _db_config in DATABASES.values():
+    _db_config["ATOMIC_REQUESTS"] = False
+    _db_config["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
 
 
 # Redis (shared with the FastAPI market-data service for live price lookups,
