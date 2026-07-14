@@ -3,13 +3,36 @@ import { useAuthStore } from '../auth/authStore'
 import { useSetPortfolioCache } from './usePortfolio'
 import type { PortfolioSocketMessage } from '../../lib/types'
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL
-
 // Exponential backoff schedule for reconnection: 1s, 2s, 4s, 8s, then holds
 // at 8s. Matches the resiliency requirement from the project's original
 // spec (gemini/prompt_react) so a dropped connection doesn't hammer the
 // server with instant reconnect attempts.
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000]
+
+/**
+ * Returns the WebSocket origin (e.g. "ws://localhost:8000") to connect to.
+ *
+ * In local dev (`npm run dev`), the frontend runs on Vite's own port
+ * (5173) while Django runs on a different port (8000) — a different
+ * origin, so `VITE_WS_BASE_URL` (set in .env.local) must be used
+ * explicitly there.
+ *
+ * In the containerized/production build, nginx serves the frontend and
+ * reverse-proxies /ws/ to Django on the *same* origin (see
+ * ../../../nginx/nginx.conf) — .env.production deliberately leaves
+ * VITE_WS_BASE_URL unset, so this falls back to deriving the origin from
+ * window.location instead. The native WebSocket constructor needs a full
+ * URL (unlike fetch, it can't take a relative path), so this is the
+ * simplest way to get a same-origin URL without baking one in at build
+ * time.
+ */
+function getWebSocketOrigin(): string {
+  const configured = import.meta.env.VITE_WS_BASE_URL
+  if (configured) return configured
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}`
+}
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed'
 
@@ -44,7 +67,9 @@ export function usePortfolioStream(portfolioId: string | undefined) {
 
     function connect() {
       setStatus('connecting')
-      const socket = new WebSocket(`${WS_BASE_URL}/ws/v1/ledger/portfolio/${portfolioId}/`)
+      const socket = new WebSocket(
+        `${getWebSocketOrigin()}/ws/v1/ledger/portfolio/${portfolioId}/`,
+      )
       socketRef.current = socket
 
       socket.onopen = () => {
