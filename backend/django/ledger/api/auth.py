@@ -11,10 +11,14 @@ financial ledger than a typical API: a stolen or logged-out access token
 could otherwise keep moving money until its `exp` claim passes.
 """
 
+from typing import cast
+
+from django.contrib.auth.models import AbstractBaseUser
 from django.http import HttpRequest
 from ninja_jwt.authentication import JWTAuth
 from ninja_jwt.exceptions import InvalidToken
 from ninja_jwt.settings import api_settings
+from ninja_jwt.tokens import Token
 
 from extensions.token_denylist import TokenDenylist
 
@@ -51,7 +55,7 @@ class DenylistCheckingJWTAuth(JWTAuth):
             self._denylist = TokenDenylist()
         return self._denylist
 
-    def authenticate(self, request: HttpRequest, token: str):
+    def authenticate(self, request: HttpRequest, token: str) -> AbstractBaseUser:
         """Verify the JWT and reject it if it's been individually or mass-revoked.
 
         Decodes the token once (via `get_validated_token`) and reuses that
@@ -61,8 +65,15 @@ class DenylistCheckingJWTAuth(JWTAuth):
         the per-user cutoff — both are O(1) Redis lookups, ordering here is
         just for readability, not performance.
         """
-        validated_token = self.get_validated_token(token)
-        jti = validated_token.get(api_settings.JTI_CLAIM)
+        # ninja_jwt.authentication.JWTAuth.get_validated_token is mistyped
+        # upstream as `-> Type[Token]` (a class) when it actually returns a
+        # `Token` instance (confirmed by reading the real implementation:
+        # `return AuthToken(raw_token)`) — this cast corrects it to the real
+        # runtime type so `.get(...)` below resolves to Token's actual
+        # instance method instead of an unbound-method false positive.
+        validated_token = cast(Token, self.get_validated_token(token))
+        jti_claim = api_settings.JTI_CLAIM or "jti"
+        jti = validated_token.get(jti_claim)
         if jti and self._get_denylist().is_denied(jti):
             raise InvalidToken("Token has been revoked.")
 
@@ -75,5 +86,10 @@ class DenylistCheckingJWTAuth(JWTAuth):
         ):
             raise InvalidToken("All sessions for this account have been logged out.")
 
-        request.user = self.get_user(validated_token)
-        return request.user
+        user = self.get_user(validated_token)
+        # HttpRequest.user is typed User | AnonymousUser by django-stubs,
+        # but ninja_jwt's authenticate() contract is to attach the resolved
+        # AbstractBaseUser here regardless of concrete type — matches the
+        # base JWTAuth.authenticate() implementation being overridden.
+        request.user = user  # type: ignore[assignment]
+        return user

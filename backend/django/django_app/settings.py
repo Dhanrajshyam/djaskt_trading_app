@@ -8,6 +8,7 @@ for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, 
 import logging
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import environ
 
@@ -43,7 +44,7 @@ configure_logging(
 logger = logging.getLogger(__name__)
 
 
-def _get_secret(key: str, *, default=environ.Env.NOTSET):
+def _get_secret(key: str, *, default: Any = environ.Env.NOTSET) -> Any:
     """Resolve a secret, preferring Infisical Vault over `.env`/OS environment.
 
     Tries Vault first; if it isn't configured (no machine identity set) or
@@ -52,9 +53,17 @@ def _get_secret(key: str, *, default=environ.Env.NOTSET):
     Vault existed. If neither source has a value and no `default` was
     given, `env(...)` raises `ImproperlyConfigured`, so the app never boots
     with an empty or hardcoded secret.
+
+    Typed `Any` in both places deliberately: `default` accepts the
+    `environ.Env.NOTSET` sentinel, plain strings, or booleans depending on
+    the caller (`SECRET_KEY` vs `DEBUG`-style flags), and `django-environ`
+    itself ships no type stubs, so `env(...)`'s return is already `Any` —
+    narrowing this function's signature further would just be inaccurate.
     """
     try:
-        value = vault.get_secret(key, environment=env("INFISICAL_ENVIRONMENT", default="dev"))
+        value = vault.get_secret(
+            key, environment=env("INFISICAL_ENVIRONMENT", default="dev")
+        )
         logger.info("Resolved secret from Vault.", extra={"secret_name": key})
         return value
     except (VaultNotConfiguredError, VaultSecretUnavailableError) as exc:
@@ -186,7 +195,7 @@ ASGI_APPLICATION = "django_app.asgi.application"
 # env vars / Vault secret name need to change, no code here does.
 
 
-def _build_database_config(*, prefix: str, secret_name: str) -> dict:
+def _build_database_config(*, prefix: str, secret_name: str) -> dict[str, Any]:
     """Build a Django DATABASES entry from discrete env vars + a Vault-backed password.
 
     `prefix` namespaces the plain (non-secret) connection parameters in
@@ -209,7 +218,9 @@ DATABASES = {
     "default": _build_database_config(prefix="DB", secret_name="DB_PASSWORD"),
     # TODO: point at a dedicated read-replica host once one is provisioned —
     # currently the same physical database as "default".
-    "replica": _build_database_config(prefix="REPLICA_DB", secret_name="REPLICA_DB_PASSWORD"),
+    "replica": _build_database_config(
+        prefix="REPLICA_DB", secret_name="REPLICA_DB_PASSWORD"
+    ),
 }
 # ACID-critical writes (SELECT FOR UPDATE inside transaction.atomic) require the
 # ORM to hold a single real connection per request rather than silently reopening one.
@@ -244,7 +255,9 @@ CHANNEL_LAYERS = {
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -332,4 +345,6 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False
+)

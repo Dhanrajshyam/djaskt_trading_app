@@ -39,19 +39,21 @@ class FakePriceCacheService(PriceCacheService):
 class TradeExecutionServiceTests(TestCase):
     """Exercises `TradeExecutionService`'s business rules and ACID guarantees."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Create a test user with a $1000 portfolio."""
-        self.user = User.objects.create_user(username="trader", password="pw")
+        self.user = User.objects.create_user(email="trader@example.com", password="pw")
         self.portfolio = Portfolio.objects.create(
             user=self.user, cash_balance=Decimal("1000.0000")
         )
 
-    def _service(self, price=Decimal("100.0000")):
+    def _service(
+        self, price: Decimal | None = Decimal("100.0000")
+    ) -> TradeExecutionService:
         """Build a TradeExecutionService wired to a fake, Redis-free price feed."""
         return TradeExecutionService(price_service=FakePriceCacheService(price))
 
-    def test_buy_debits_cash_and_creates_position(self):
-        """A BUY should debit cash by quantity*price and create/increase the position."""
+    def test_buy_debits_cash_and_creates_position(self) -> None:
+        """A BUY should debit cash by quantity*price and create/grow the position."""
         service = self._service()
         result = service.execute_trade(
             portfolio_id=self.portfolio.id,
@@ -69,8 +71,8 @@ class TradeExecutionServiceTests(TestCase):
         self.assertEqual(position.quantity, Decimal("2.0000"))
         self.assertEqual(result.trade.total_value, Decimal("200.0000"))
 
-    def test_buy_insufficient_funds_raises_and_rolls_back(self):
-        """A BUY exceeding cash_balance should raise and leave the portfolio untouched."""
+    def test_buy_insufficient_funds_raises_and_rolls_back(self) -> None:
+        """A BUY exceeding cash_balance should raise and leave portfolio unchanged."""
         service = self._service(price=Decimal("10000.0000"))
         with self.assertRaises(InsufficientFundsError):
             service.execute_trade(
@@ -85,7 +87,7 @@ class TradeExecutionServiceTests(TestCase):
         self.assertEqual(self.portfolio.cash_balance, Decimal("1000.0000"))
         self.assertEqual(Trade.objects.count(), 0)
 
-    def test_sell_insufficient_position_raises(self):
+    def test_sell_insufficient_position_raises(self) -> None:
         """A SELL exceeding (or with no) held quantity should raise."""
         service = self._service()
         with self.assertRaises(InsufficientPositionError):
@@ -97,8 +99,10 @@ class TradeExecutionServiceTests(TestCase):
                 idempotency_key=uuid.uuid4(),
             )
 
-    def test_idempotent_replay_returns_existing_trade_without_double_charging(self):
-        """Resubmitting the same idempotency_key must return the original trade, not charge twice."""
+    def test_idempotent_replay_returns_existing_trade_without_double_charging(
+        self,
+    ) -> None:
+        """Replaying idempotency_key returns the original trade, not a duplicate."""
         service = self._service()
         key = uuid.uuid4()
 
@@ -124,8 +128,8 @@ class TradeExecutionServiceTests(TestCase):
         self.assertEqual(Trade.objects.count(), 1)
         self.assertEqual(self.portfolio.cash_balance, Decimal("900.0000"))
 
-    def test_stale_price_rejects_trade(self):
-        """No live price available (simulated missing/expired Redis key) must reject the trade."""
+    def test_stale_price_rejects_trade(self) -> None:
+        """Missing/expired live price (simulated) rejects the trade."""
         service = self._service(price=None)
         with self.assertRaises(PriceUnavailableError):
             service.execute_trade(
@@ -140,12 +144,12 @@ class TradeExecutionServiceTests(TestCase):
 class TradeModelTests(TestCase):
     """Exercises `Trade`'s model-level immutability enforcement."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Create a test user with a default (zero-balance) portfolio."""
-        self.user = User.objects.create_user(username="trader2", password="pw")
+        self.user = User.objects.create_user(email="trader2@example.com", password="pw")
         self.portfolio = Portfolio.objects.create(user=self.user)
 
-    def test_trade_is_immutable(self):
+    def test_trade_is_immutable(self) -> None:
         """Modifying and re-saving an existing Trade row must raise ValueError."""
         trade = Trade.objects.create(
             portfolio=self.portfolio,

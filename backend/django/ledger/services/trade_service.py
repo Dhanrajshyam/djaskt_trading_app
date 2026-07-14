@@ -61,7 +61,7 @@ class TradeExecutionService:
         ticker: str,
         trade_type: str,
         quantity: Decimal,
-        idempotency_key,
+        idempotency_key: UUID,
     ) -> TradeResult:
         """Execute a BUY or SELL trade against a portfolio.
 
@@ -118,6 +118,7 @@ class TradeExecutionService:
                     f"Portfolio {portfolio_id} does not exist."
                 ) from exc
 
+            position: Position | None
             if trade_type == Trade.TradeType.BUY:
                 if portfolio.cash_balance < total_value:
                     logger.warning(
@@ -155,7 +156,9 @@ class TradeExecutionService:
                         extra={
                             "portfolio_id": str(portfolio_id),
                             "ticker": ticker,
-                            "held_quantity": str(position.quantity if position else Decimal("0")),
+                            "held_quantity": str(
+                                position.quantity if position else Decimal("0")
+                            ),
                             "requested_quantity": str(quantity),
                         },
                     )

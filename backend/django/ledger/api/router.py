@@ -9,10 +9,18 @@ method on `LedgerController` rather than a free function bound to a
 function-based Router.
 """
 
+from typing import cast
+
+from django.db.models import QuerySet
 from django.http import HttpRequest
 from ninja_extra import api_controller, http_get, http_post
-from ninja_extra.pagination import LimitOffsetPagination, NinjaPaginationResponseSchema, paginate
+from ninja_extra.pagination import (
+    LimitOffsetPagination,
+    NinjaPaginationResponseSchema,
+    paginate,
+)
 
+from accounts.models import User
 from ledger.api.auth import DenylistCheckingJWTAuth
 from ledger.api.schemas import (
     CashTransferRequestSchema,
@@ -60,7 +68,9 @@ class LedgerController:
             404: ErrorSchema,
         },
     )
-    def submit_trade(self, request: HttpRequest, payload: TradeRequestSchema):
+    def submit_trade(
+        self, request: HttpRequest, payload: TradeRequestSchema
+    ) -> tuple[int, TradeResponseSchema | ErrorSchema]:
         """Submit a BUY/SELL trade for the authenticated user's portfolio.
 
         Returns 201 for a newly committed trade, 200 for an idempotent
@@ -70,8 +80,10 @@ class LedgerController:
         """
         # Portfolio.user is a strict one-to-one relationship — no client-
         # supplied ID to check ownership of, only "does this user have a
-        # portfolio at all".
-        portfolio = get_portfolio_for_user(request.user)
+        # portfolio at all". request.user is cast to User (not AnonymousUser)
+        # because DenylistCheckingJWTAuth on the controller guarantees
+        # authentication before any action method runs.
+        portfolio = get_portfolio_for_user(cast(User, request.user))
         if portfolio is None:
             return 404, ErrorSchema(detail="No portfolio found for this account.")
 
@@ -85,7 +97,11 @@ class LedgerController:
             )
         except PortfolioNotFoundError as exc:
             return 404, ErrorSchema(detail=str(exc))
-        except (InsufficientFundsError, InsufficientPositionError, PriceUnavailableError) as exc:
+        except (
+            InsufficientFundsError,
+            InsufficientPositionError,
+            PriceUnavailableError,
+        ) as exc:
             return 409, ErrorSchema(detail=str(exc))
         except InvalidTradeRequestError as exc:
             return 409, ErrorSchema(detail=str(exc))
@@ -111,9 +127,11 @@ class LedgerController:
         "/portfolio/",
         response={200: PortfolioResponseSchema, 404: ErrorSchema},
     )
-    def get_portfolio(self, request: HttpRequest):
+    def get_portfolio(
+        self, request: HttpRequest
+    ) -> tuple[int, PortfolioResponseSchema | ErrorSchema]:
         """Return the authenticated user's cash balance and current holdings."""
-        portfolio = get_portfolio_for_user(request.user)
+        portfolio = get_portfolio_for_user(cast(User, request.user))
         if portfolio is None:
             return 404, ErrorSchema(detail="No portfolio found for this account.")
 
@@ -132,7 +150,7 @@ class LedgerController:
         response={200: NinjaPaginationResponseSchema[TradeHistoryItemSchema]},
     )
     @paginate(LimitOffsetPagination)
-    def list_trades(self, request: HttpRequest):
+    def list_trades(self, request: HttpRequest) -> QuerySet[Trade]:
         """Return the authenticated user's trade history, newest first.
 
         Paginated via `?limit=&offset=` (django-ninja-extra's built-in
@@ -141,7 +159,7 @@ class LedgerController:
         Response is wrapped as `{"items": [...], "count": N}` by the
         pagination decorator.
         """
-        portfolio = get_portfolio_for_user(request.user)
+        portfolio = get_portfolio_for_user(cast(User, request.user))
         if portfolio is None:
             return Trade.objects.none()
         # Trade.Meta.ordering is already "-timestamp"; explicit here for
@@ -158,15 +176,17 @@ class LedgerController:
             404: ErrorSchema,
         },
     )
-    def transfer_cash(self, request: HttpRequest, payload: CashTransferRequestSchema):
-        """Submit a CREDIT (deposit) or DEBIT (withdrawal) for the authenticated user's portfolio.
+    def transfer_cash(
+        self, request: HttpRequest, payload: CashTransferRequestSchema
+    ) -> tuple[int, CashTransferResponseSchema | ErrorSchema]:
+        """Submit a CREDIT (deposit) or DEBIT (withdrawal) for the caller's portfolio.
 
         Returns 201 for a newly committed transfer, 200 for an idempotent
         replay, 404 if the caller has no portfolio, or 409 for a
         business-rule violation (insufficient funds for a DEBIT, invalid
         request).
         """
-        portfolio = get_portfolio_for_user(request.user)
+        portfolio = get_portfolio_for_user(cast(User, request.user))
         if portfolio is None:
             return 404, ErrorSchema(detail="No portfolio found for this account.")
 

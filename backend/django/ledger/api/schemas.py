@@ -14,6 +14,8 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import field_validator
 
+from ledger.models import Trade
+
 
 class TradeRequestSchema(Schema):
     """Payload for `POST /api/v1/ledger/trade/`.
@@ -125,12 +127,12 @@ class TradeHistoryItemSchema(Schema):
     timestamp: str
 
     @staticmethod
-    def resolve_trade_id(obj) -> UUID:
+    def resolve_trade_id(obj: Trade) -> UUID:
         """Map the model's `id` field to this schema's `trade_id`."""
         return obj.id
 
     @staticmethod
-    def resolve_timestamp(obj) -> str:
+    def resolve_timestamp(obj: Trade) -> str:
         """Serialize the model's `datetime` timestamp as ISO-8601."""
         return obj.timestamp.isoformat()
 

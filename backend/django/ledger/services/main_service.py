@@ -10,6 +10,7 @@ without changing the contract layer.
 
 import logging
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from asgiref.sync import async_to_sync
@@ -52,7 +53,7 @@ class LedgerOrchestratorService:
         ticker: str,
         trade_type: str,
         quantity: Decimal,
-        idempotency_key,
+        idempotency_key: UUID,
     ) -> TradeResult:
         """Execute a trade and broadcast the resulting portfolio state.
 
@@ -84,7 +85,7 @@ class LedgerOrchestratorService:
         portfolio_id: UUID,
         direction: str,
         amount: Decimal,
-        idempotency_key,
+        idempotency_key: UUID,
     ) -> CashTransferResult:
         """Apply a cash transfer and broadcast the resulting portfolio state.
 
@@ -142,7 +143,7 @@ class LedgerOrchestratorService:
             for p in Position.objects.filter(portfolio=portfolio)
         ]
 
-        payload = {
+        payload: dict[str, Any] = {
             "portfolio_id": str(portfolio.id),
             "cash_balance": str(portfolio.cash_balance),
             "positions": positions,

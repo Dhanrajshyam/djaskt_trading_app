@@ -6,20 +6,28 @@ check can't drift between the REST contract layer and the WebSocket layer
 """
 
 import logging
+import uuid
+from typing import TYPE_CHECKING
 
 from ledger.models import Portfolio
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 logger = logging.getLogger(__name__)
 
 
-def get_owned_portfolio_or_none(user, portfolio_id) -> Portfolio | None:
+def get_owned_portfolio_or_none(
+    user: User, portfolio_id: uuid.UUID | str
+) -> Portfolio | None:
     """Return the Portfolio identified by `portfolio_id` only if `user` owns it.
 
     Returns None both when the portfolio doesn't exist and when it belongs to
     someone else — callers must not distinguish the two in their response,
     to avoid leaking which portfolio IDs exist to unauthorized users. Used
     where a client supplies a portfolio ID directly (e.g. the WebSocket
-    route's URL-embedded `portfolio_id`) — REST trade/cash-transfer
+    route's URL-embedded `portfolio_id`, a plain `str` since that route is a
+    regex `re_path`, not a `<uuid:...>` converter) — REST trade/cash-transfer
     endpoints no longer take a client-supplied ID at all (see
     `get_portfolio_for_user`), since `Portfolio.user` is a strict
     one-to-one relationship and there's nothing to check ownership *of*.
@@ -31,12 +39,15 @@ def get_owned_portfolio_or_none(user, portfolio_id) -> Portfolio | None:
         # pattern in ELK, distinct from a plain "not found".
         logger.warning(
             "Portfolio access denied: not found or not owned by requesting user.",
-            extra={"user_id": getattr(user, "id", None), "portfolio_id": str(portfolio_id)},
+            extra={
+                "user_id": getattr(user, "id", None),
+                "portfolio_id": str(portfolio_id),
+            },
         )
     return portfolio
 
 
-def get_portfolio_for_user(user) -> Portfolio | None:
+def get_portfolio_for_user(user: User) -> Portfolio | None:
     """Return the authenticated user's own portfolio, or None if they have none.
 
     `Portfolio.user` is a strict `OneToOneField` — every user has at most
@@ -49,7 +60,7 @@ def get_portfolio_for_user(user) -> Portfolio | None:
     return Portfolio.objects.filter(user=user).first()
 
 
-def create_user_portfolio(user) -> Portfolio:
+def create_user_portfolio(user: User) -> Portfolio:
     """Create and return a new, zero-balance Portfolio for `user`.
 
     Called once, at signup (`accounts.api.AuthController.signup`) — the

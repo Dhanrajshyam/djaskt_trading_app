@@ -1,0 +1,68 @@
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+extend-exclude = ["**/migrations"]
+
+[tool.ruff.lint]
+extend-select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "DJ",  # flake8-django
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RET", # flake8-return
+]
+
+[tool.ruff.lint.per-file-ignores]
+# django_app/settings.py has long, self-documenting env-var wiring lines
+# that are clearer unwrapped than split across multiple lines.
+"django_app/settings.py" = ["E501"]
+
+[tool.ruff.format]
+# Black-compatible defaults — no project-specific overrides needed.
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+python_version = "3.14"
+exclude = ["migrations/"]
+
+# Moderate-strict baseline for a codebase that already has decent
+# parameter-level type hints: catches real gaps (missing return types,
+# untyped generics, implicit Any returns) without requiring
+# disallow_untyped_calls/disallow_subclassing_any, which would make
+# Django's own Model/ModelAdmin/Manager base classes unworkable.
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# These libraries ship no type stubs (and no py.typed marker) — suppress
+# import-time noise from the dependency itself, not project code. Confirmed
+# via a real mypy run: ninja_extra/ninja_jwt (no stubs package exists),
+# channels (a types-channels package exists but isn't part of this
+# project's chosen dependency set), django-environ, and infisical_sdk.
+module = [
+    "ninja_extra.*",
+    "ninja_jwt.*",
+    "channels.*",
+    "environ.*",
+    "infisical_sdk.*",
+]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "django_app.settings"
+
+[tool.pyright]
+# Authoritative type-checking is mypy (with django-stubs, which
+# introspects Django's real app registry) — Pyright has no plugin system
+# to do the same, so strict mode here produces false positives on Django's
+# dynamic ORM/manager code it fundamentally can't resolve. "basic" keeps
+# Pylance useful for fast in-editor feedback without that noise.
+typeCheckingMode = "basic"
+pythonVersion = "3.14"
+exclude = ["**/migrations", "**/.venv", ".venv"]

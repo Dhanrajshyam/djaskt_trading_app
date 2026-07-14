@@ -10,15 +10,19 @@ so the portfolio's state is always reconstructable from history.
 
 import uuid
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models
 
+if TYPE_CHECKING:
+    from accounts.models import User
 
-class PortfolioQuerySet(models.QuerySet):
+
+class PortfolioQuerySet(models.QuerySet["Portfolio"]):
     """Scoping helpers so data-isolation lives in one place, not per-view."""
 
-    def for_user(self, user):
+    def for_user(self, user: User) -> PortfolioQuerySet:
         """Return only the Portfolio(s) belonging to `user`.
 
         Centralizes per-user data isolation (OWASP A01 — broken access
@@ -86,8 +90,9 @@ class Trade(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # Client-provided (or server-generated) key used to make trade submission idempotent.
-    # Distinct from `id`: this is the caller's dedup token, not the row identity.
+    # Client-provided (or server-generated) key used to make trade submission
+    # idempotent. Distinct from `id`: this is the caller's dedup token, not
+    # the row identity.
     idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
 
     portfolio = models.ForeignKey(
@@ -105,14 +110,16 @@ class Trade(models.Model):
     class Meta:
         ordering = ["-timestamp"]
         indexes = [
-            models.Index(fields=["portfolio", "timestamp"], name="trade_portfolio_ts_idx"),
+            models.Index(
+                fields=["portfolio", "timestamp"], name="trade_portfolio_ts_idx"
+            ),
         ]
 
     def __str__(self) -> str:
         """Human-readable label used in the Django admin and shell."""
         return f"{self.trade_type} {self.quantity} {self.ticker} @ {self.price}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Persist the trade, rejecting any attempt to modify an existing row.
 
         Lightweight application-layer enforcement of immutability — a Trade
@@ -127,7 +134,9 @@ class Trade(models.Model):
         regardless of whether its PK was assigned client-side or by the DB.
         """
         if not self._state.adding:
-            raise ValueError("Ledger entries (Trades) are immutable and cannot be modified.")
+            raise ValueError(
+                "Ledger entries (Trades) are immutable and cannot be modified."
+            )
         super().save(*args, **kwargs)
 
 
@@ -145,7 +154,8 @@ class CashTransaction(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # Client-provided (or server-generated) key used to make transfer submission idempotent.
+    # Client-provided (or server-generated) key used to make transfer
+    # submission idempotent.
     idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
 
     portfolio = models.ForeignKey(
@@ -161,14 +171,16 @@ class CashTransaction(models.Model):
     class Meta:
         ordering = ["-timestamp"]
         indexes = [
-            models.Index(fields=["portfolio", "timestamp"], name="cashtxn_portfolio_ts_idx"),
+            models.Index(
+                fields=["portfolio", "timestamp"], name="cashtxn_portfolio_ts_idx"
+            ),
         ]
 
     def __str__(self) -> str:
         """Human-readable label used in the Django admin and shell."""
         return f"{self.direction} {self.amount} -> balance {self.resulting_balance}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Persist the transaction, rejecting any attempt to modify an existing row.
 
         Mirrors `Trade.save()`'s immutability enforcement (including the

@@ -17,7 +17,7 @@ django.setup()
 
 django_asgi_app = get_asgi_application()
 
-from ledger.realtime.routing import websocket_urlpatterns  # noqa: E402  (must follow django.setup())
+from ledger.realtime.routing import websocket_urlpatterns  # noqa: E402
 
 application = ProtocolTypeRouter(
     {

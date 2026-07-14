@@ -12,7 +12,6 @@ come up empty.
 import logging
 import os
 import threading
-from typing import Optional
 
 from infisical_sdk import InfisicalSDKClient
 from infisical_sdk.infisical_requests import InfisicalError
@@ -50,10 +49,15 @@ class InfisicalVaultManager:
     Vault is unreachable or unconfigured.
     """
 
-    _instance: Optional["InfisicalVaultManager"] = None
+    _instance: InfisicalVaultManager | None = None
     _instance_lock = threading.Lock()
+    # Declared here (not just assigned in __new__/__init__) so mypy can
+    # resolve the attribute's type — it's always set in __new__ before
+    # __init__ reads it, but that dynamic assignment alone isn't enough
+    # for static analysis to infer the type from.
+    _initialized: bool
 
-    def __new__(cls) -> "InfisicalVaultManager":
+    def __new__(cls) -> InfisicalVaultManager:
         """Enforce thread-safe singleton instantiation."""
         if cls._instance is None:
             with cls._instance_lock:
@@ -169,7 +173,10 @@ class InfisicalVaultManager:
             environment_slug=environment or self.default_environment,
             secret_path=self.secret_path,
         )
-        return secret.secretValue
+        # infisical_sdk ships no type stubs, so `secret.secretValue` is
+        # inferred as Any — str(...) makes the guaranteed-string contract
+        # explicit rather than silently returning Any from a str-typed def.
+        return str(secret.secretValue)
 
 
 # Module-level singleton, imported directly by django_app/settings.py.

@@ -46,7 +46,7 @@ class CashTransferService:
         portfolio_id: UUID,
         direction: str,
         amount: Decimal,
-        idempotency_key,
+        idempotency_key: UUID,
     ) -> CashTransferResult:
         """Apply a CREDIT (deposit) or DEBIT (withdrawal) to a portfolio's cash balance.
 
@@ -66,10 +66,12 @@ class CashTransferService:
             raise InvalidTradeRequestError("Amount must be strictly positive.")
 
         # Idempotency check happens outside any lock, matching TradeExecutionService.
-        existing = CashTransaction.objects.filter(idempotency_key=idempotency_key).first()
+        existing = CashTransaction.objects.filter(
+            idempotency_key=idempotency_key
+        ).first()
         if existing is not None:
             logger.info(
-                "Idempotent cash transfer replay detected; returning existing transaction.",
+                "Idempotent cash transfer replay detected; returning existing txn.",
                 extra={
                     "portfolio_id": str(portfolio_id),
                     "direction": direction,

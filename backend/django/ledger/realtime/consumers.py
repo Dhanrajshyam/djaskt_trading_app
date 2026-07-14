@@ -7,9 +7,15 @@ over the socket.
 
 import json
 import logging
+import uuid
+from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+
+if TYPE_CHECKING:
+    from accounts.models import User
+    from ledger.models import Portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +24,7 @@ TRADE_HISTORY_LIMIT = 50
 GROUP_NAME_TEMPLATE = "portfolio_{portfolio_id}"
 
 
-def portfolio_group_name(portfolio_id) -> str:
+def portfolio_group_name(portfolio_id: uuid.UUID | str) -> str:
     """Return the Channels group name a portfolio's updates are broadcast to.
 
     Shared by both this consumer (to join the group on connect) and
@@ -37,7 +43,7 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
     (OWASP broken object-level authorization).
     """
 
-    async def connect(self):
+    async def connect(self) -> None:
         """Authenticate, authorize, and accept the WebSocket connection.
 
         Closes with code 4401 if the user isn't authenticated, or 4403 if
@@ -59,7 +65,7 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         portfolio = await self._get_owned_portfolio(user, self.portfolio_id)
         if portfolio is None:
             logger.warning(
-                "WebSocket connection rejected: portfolio not found or not owned by user.",
+                "WebSocket connection rejected: portfolio not found or not owned.",
                 extra={"portfolio_id": self.portfolio_id, "user_id": user.id},
             )
             await self.close(code=4403)
@@ -78,9 +84,11 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         # client has context before any live "portfolio.update" broadcasts
         # arrive. Trade.Meta.ordering is already "-timestamp".
         trades = await self._get_recent_trades(self.portfolio_id)
-        await self.send(text_data=json.dumps({"type": "trade_history", "trades": trades}))
+        await self.send(
+            text_data=json.dumps({"type": "trade_history", "trades": trades})
+        )
 
-    async def disconnect(self, close_code):
+    async def disconnect(self, code: int) -> None:
         """Leave the portfolio's broadcast group, if it was ever joined."""
         group_name = getattr(self, "group_name", None)
         if group_name:
@@ -90,16 +98,16 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
                 extra={
                     "portfolio_id": getattr(self, "portfolio_id", None),
                     "user_id": getattr(self, "user_id", None),
-                    "close_code": close_code,
+                    "close_code": code,
                 },
             )
 
-    async def portfolio_update(self, event):
+    async def portfolio_update(self, event: dict[str, Any]) -> None:
         """Handler for `type: "portfolio.update"` group_send messages."""
         await self.send(text_data=json.dumps(event["payload"]))
 
     @staticmethod
-    async def _get_owned_portfolio(user, portfolio_id):
+    async def _get_owned_portfolio(user: User, portfolio_id: str) -> Portfolio | None:
         """Async wrapper around the shared `get_owned_portfolio_or_none` helper.
 
         Reuses the same authorization logic as the REST layer
@@ -111,7 +119,9 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         return await sync_to_async(get_owned_portfolio_or_none)(user, portfolio_id)
 
     @staticmethod
-    async def _get_recent_trades(portfolio_id, limit: int = TRADE_HISTORY_LIMIT) -> list[dict]:
+    async def _get_recent_trades(
+        portfolio_id: str, limit: int = TRADE_HISTORY_LIMIT
+    ) -> list[dict[str, str]]:
         """Fetch the portfolio's most recent trades, newest first, as plain dicts.
 
         Returns JSON-serializable dicts (not model instances) since the
@@ -119,8 +129,10 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
         """
         from ledger.models import Trade
 
-        def _fetch():
-            trades = Trade.objects.filter(portfolio_id=portfolio_id).order_by("-timestamp")[:limit]
+        def _fetch() -> list[dict[str, str]]:
+            trades = Trade.objects.filter(portfolio_id=portfolio_id).order_by(
+                "-timestamp"
+            )[:limit]
             return [
                 {
                     "trade_id": str(t.id),
