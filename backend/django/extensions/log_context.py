@@ -7,7 +7,7 @@ import it without either depending on the other.
 """
 
 import contextvars
-from typing import Optional, TypedDict
+from typing import Any, TypedDict
 
 
 class RequestLogMetadata(TypedDict):
@@ -15,15 +15,18 @@ class RequestLogMetadata(TypedDict):
 
     Mirrors the Elastic Common Schema (ECS) field groups it will be nested
     under when a log record is formatted: `trace`/`transaction` carry the
-    correlation ID, `http`/`url` describe the originating request.
+    correlation ID, `http`/`url` describe the originating request. Field
+    values are `dict[str, Any]` rather than a fully-nested TypedDict since
+    each block's shape varies (e.g. `http` nests a further `request` dict) —
+    this type exists to fix the top-level keys, not police ECS internals.
     """
 
-    trace: dict
-    transaction: dict
-    http: dict
-    url: dict
+    trace: dict[str, Any]
+    transaction: dict[str, Any]
+    http: dict[str, Any]
+    url: dict[str, Any]
 
 
-request_metadata_var: contextvars.ContextVar[Optional[RequestLogMetadata]] = (
+request_metadata_var: contextvars.ContextVar[RequestLogMetadata | None] = (
     contextvars.ContextVar("request_metadata", default=None)
 )

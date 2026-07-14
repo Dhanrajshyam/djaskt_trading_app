@@ -27,6 +27,7 @@ import queue
 import socket
 import sys
 from logging.handlers import QueueHandler, QueueListener
+from typing import Any
 
 from pythonjsonlogger.json import JsonFormatter
 
@@ -45,11 +46,11 @@ class ECSDeepJsonFormatter(JsonFormatter):
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         service_name: str = "djaskt-ledger",
         service_version: str = "1.0.0",
         environment: str = "development",
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize the formatter, capturing static service/host metadata.
 
@@ -65,7 +66,7 @@ class ECSDeepJsonFormatter(JsonFormatter):
         }
         self.host_name = socket.gethostname()
 
-    def process_log_record(self, log_record: dict) -> dict:
+    def process_log_record(self, log_record: dict[str, Any]) -> dict[str, Any]:
         """Reshape the flat field dict `add_fields()` built into ECS nesting.
 
         By this point `log_record` already contains any extra attributes
@@ -97,7 +98,9 @@ class ECSDeepJsonFormatter(JsonFormatter):
         if log_record.get("exc_info"):
             trace_string = log_record["exc_info"]
             error_type = (
-                trace_string.splitlines()[-1].split(":")[0] if trace_string else "Exception"
+                trace_string.splitlines()[-1].split(":")[0]
+                if trace_string
+                else "Exception"
             )
             ecs_record["error"] = {
                 "type": error_type,
@@ -139,7 +142,7 @@ class ECSContextFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Attach request metadata to `record`, if any is set for the current context."""
+        """Attach request metadata to `record`, if set for the current context."""
         metadata = request_metadata_var.get()
         if metadata:
             record.trace = metadata.get("trace")
@@ -193,7 +196,7 @@ def configure_logging(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(ecs_formatter)
 
-    log_queue: queue.Queue = queue.Queue(-1)
+    log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
     queue_handler = QueueHandler(log_queue)
     # The context filter must live on the *handler*, not the logger: a
     # logging.Logger only runs its own .filters for records logged directly

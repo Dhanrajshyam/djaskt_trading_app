@@ -11,4 +11,4 @@ class LedgerConfig(AppConfig):
     signal handlers to wire up at startup.
     """
 
-    name = 'ledger'
+    name = "ledger"

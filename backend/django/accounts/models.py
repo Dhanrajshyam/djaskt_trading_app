@@ -8,12 +8,14 @@ exist, auto-derived from the email's local part at creation time, and
 never used for authentication or shown to the user.
 """
 
+from typing import Any
+
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
-class UserManager(BaseUserManager):
+class UserManager(BaseUserManager["User"]):
     """Manager for `User`, keyed on `email` rather than `username`.
 
     `AbstractUser`'s inherited manager (`django.contrib.auth.models
@@ -28,7 +30,9 @@ class UserManager(BaseUserManager):
 
     use_in_migrations = True
 
-    def _create_user(self, email: str, password: str | None, **extra_fields):
+    def _create_user(
+        self, email: str, password: str | None, **extra_fields: Any
+    ) -> User:
         """Create and save a user with the given email and password.
 
         `username` is auto-derived from the email's local part here too
@@ -45,13 +49,17 @@ class UserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_user(self, email: str, password: str | None = None, **extra_fields):
+    def create_user(
+        self, email: str, password: str | None = None, **extra_fields: Any
+    ) -> User:
         """Create a regular (non-staff, non-superuser) user."""
         extra_fields.setdefault("is_staff", False)
         extra_fields.setdefault("is_superuser", False)
         return self._create_user(email, password, **extra_fields)
 
-    def create_superuser(self, email: str, password: str | None = None, **extra_fields):
+    def create_superuser(
+        self, email: str, password: str | None = None, **extra_fields: Any
+    ) -> User:
         """Create a superuser — used by `manage.py createsuperuser`."""
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -83,7 +91,11 @@ class User(AbstractUser):
     # expected and harmless since this field carries no identity meaning.
     username = models.CharField(max_length=150, blank=True)
 
-    objects = UserManager()
+    # django-stubs types AbstractUser.objects as UserManager[User] (Django's
+    # own manager); this project's custom UserManager is a deliberate
+    # replacement with a different, email-first _create_user signature, so
+    # the override is intentional, not a type error.
+    objects: UserManager = UserManager()  # type: ignore[assignment,misc]
 
     def __str__(self) -> str:
         """Human-readable label used in the Django admin and shell."""

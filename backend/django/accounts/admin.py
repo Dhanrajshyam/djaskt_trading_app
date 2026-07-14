@@ -7,7 +7,12 @@ from accounts.models import User
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin):
+class UserAdmin(DjangoUserAdmin):  # type: ignore[type-arg]
+    # django-stubs types UserAdmin as Generic (UserAdmin[User]) for static
+    # checking, but Django's actual runtime class has no __class_getitem__ —
+    # subscripting it here would raise TypeError at admin.autodiscover()
+    # time. The unparameterized form is the only one that both runs and
+    # type-checks (with this ignore for the resulting type-arg warning).
     """Admin view for User, adapted for email-based login.
 
     Overrides Django's stock `UserAdmin` field layout — which assumes
