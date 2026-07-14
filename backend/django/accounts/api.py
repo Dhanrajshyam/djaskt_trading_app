@@ -12,10 +12,11 @@ which is intentionally not installed (see `django_app/settings.py`).
 """
 
 import logging
-from datetime import timedelta
-from typing import cast
+from datetime import datetime, timedelta
+from typing import Any, cast
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AbstractUser
 from django.db import transaction
 from django.http import HttpRequest
 from django.utils import timezone
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
-def _seconds_until_utc_midnight(now) -> timedelta:
+def _seconds_until_utc_midnight(now: datetime) -> timedelta:
     """Return the timedelta from `now` to the next UTC midnight, capped at 24h.
 
     E.g. 11:00 -> 13:00:00 (13h) until 00:00 the same day; 00:05 -> ~23h55m
@@ -63,7 +64,7 @@ class EmailTokenObtainPairInputSchema(TokenObtainPairInputSchema):
     """
 
     @classmethod
-    def get_token(cls, user) -> dict:
+    def get_token(cls, user: AbstractUser) -> dict[str, str]:
         """Build refresh + access tokens, with a UTC-midnight-capped access expiry.
 
         `RefreshToken.access_token` (the normal path) always uses the
@@ -153,7 +154,9 @@ class AuthController:
         response={201: SignupResponseSchema, 409: ErrorSchema},
         url_name="auth_signup",
     )
-    def signup(self, request: HttpRequest, payload: SignupInputSchema):
+    def signup(
+        self, request: HttpRequest, payload: SignupInputSchema
+    ) -> tuple[int, SignupResponseSchema | ErrorSchema]:
         """Create a new user account and their portfolio.
 
         Returns 409 if the email is already registered. Portfolio creation
@@ -185,11 +188,18 @@ class AuthController:
         response={200: TokenObtainPairOutputSchema, 401: ErrorSchema},
         url_name="auth_login",
     )
-    def login(self, request: HttpRequest, payload: EmailTokenObtainPairInputSchema):
+    def login(
+        self, request: HttpRequest, payload: EmailTokenObtainPairInputSchema
+    ) -> tuple[int, Any]:
         """Authenticate by email + password, returning a refresh/access token pair.
 
         The access token expires at UTC midnight (capped at 24h) rather
         than a fixed lifetime — see `EmailTokenObtainPairInputSchema`.
+
+        Return type is `tuple[int, Any]` rather than a precise schema union:
+        `to_response_schema()` builds its return value dynamically from
+        `EmailTokenObtainPairInputSchema.get_token()`'s dict via ninja_jwt's
+        own schema machinery, with no static type exposed for it to narrow to.
         """
         payload.check_user_authentication_rule()
         return 200, payload.to_response_schema()
@@ -199,7 +209,9 @@ class AuthController:
         response={200: TokenObtainPairOutputSchema, 401: ErrorSchema},
         url_name="auth_token_refresh",
     )
-    def refresh(self, request: HttpRequest, payload: RefreshInputSchema):
+    def refresh(
+        self, request: HttpRequest, payload: RefreshInputSchema
+    ) -> tuple[int, Any]:
         """Exchange a refresh token for a new access/refresh pair.
 
         Always rotates the refresh token (denylisting the old one in Redis)
@@ -213,7 +225,14 @@ class AuthController:
         except TokenError as exc:
             return 401, ErrorSchema(detail=str(exc))
 
-        old_jti = old_refresh[api_settings.JTI_CLAIM]
+        # api_settings.JTI_CLAIM/USER_ID_CLAIM are typed str | None (a
+        # settings object that could theoretically be overridden to None),
+        # but always resolve to a real string in practice — same pattern as
+        # ledger.api.auth.DenylistCheckingJWTAuth.authenticate.
+        jti_claim = api_settings.JTI_CLAIM or "jti"
+        user_id_claim = api_settings.USER_ID_CLAIM or "user_id"
+
+        old_jti = old_refresh[jti_claim]
         if self._denylist.is_denied(old_jti):
             # Reused a refresh token that was already rotated away (or
             # explicitly logged out) — reject rather than silently minting
@@ -221,7 +240,9 @@ class AuthController:
             # a refresh token it already exchanged.
             return 401, ErrorSchema(detail="Refresh token has been revoked.")
 
-        user = User.objects.get(**{api_settings.USER_ID_FIELD: old_refresh[api_settings.USER_ID_CLAIM]})
+        user = User.objects.get(
+            **{api_settings.USER_ID_FIELD: old_refresh[user_id_claim]}
+        )
 
         old_exp = old_refresh["exp"]
         remaining_ttl = old_exp - int(timezone.now().timestamp())
@@ -231,8 +252,14 @@ class AuthController:
         logger.info("Refresh token rotated.", extra={"user_id": user.id})
         # TokenObtainPairOutputSchema's non-token field is named after
         # USERNAME_FIELD (AuthUserSchema.Meta.fields = [user_name_field]) —
-        # "email" for this app's User model, not "user_id".
-        return 200, TokenObtainPairOutputSchema(email=user.email, **token_data)
+        # "email" for this app's User model, not "user_id". This field is
+        # added dynamically at runtime (confirmed: TokenObtainPairOutputSchema
+        # .model_fields includes "email"), which mypy's static stub can't
+        # see — hence the ignore, not a real invalid-kwarg error.
+        return 200, TokenObtainPairOutputSchema(
+            email=user.email,  # type: ignore[call-arg]
+            **token_data,
+        )
 
     @http_post(
         "/logout/",
@@ -240,7 +267,9 @@ class AuthController:
         auth=DenylistCheckingJWTAuth(),
         url_name="auth_logout",
     )
-    def logout(self, request: HttpRequest, payload: LogoutInputSchema):
+    def logout(
+        self, request: HttpRequest, payload: LogoutInputSchema
+    ) -> tuple[int, LogoutResponseSchema]:
         """Revoke the caller's access and/or refresh token immediately.
 
         Requires a valid (not-yet-revoked) access token to call this
@@ -251,15 +280,19 @@ class AuthController:
         token's life early, it's not required for tokens to become invalid.
         """
         now_ts = int(timezone.now().timestamp())
+        jti_claim = api_settings.JTI_CLAIM or "jti"
 
-        for raw_token, token_cls in ((payload.access, AccessToken), (payload.refresh, RefreshToken)):
+        for raw_token, token_cls in (
+            (payload.access, AccessToken),
+            (payload.refresh, RefreshToken),
+        ):
             if not raw_token:
                 continue
             try:
                 token = token_cls(raw_token)
             except TokenError:
                 continue
-            jti = token[api_settings.JTI_CLAIM]
+            jti = token[jti_claim]
             remaining_ttl = token["exp"] - now_ts
             self._denylist.deny(jti, ttl_seconds=remaining_ttl)
 
@@ -272,7 +305,7 @@ class AuthController:
         auth=DenylistCheckingJWTAuth(),
         url_name="auth_logout_all",
     )
-    def logout_all(self, request: HttpRequest):
+    def logout_all(self, request: HttpRequest) -> tuple[int, LogoutResponseSchema]:
         """Revoke every access/refresh token issued to the caller, on every device.
 
         Unlike `/logout/` (which revokes only the specific token(s) the
@@ -284,6 +317,10 @@ class AuthController:
         its very next request; a fresh login afterward works normally.
         """
         cutoff = int(timezone.now().timestamp())
-        self._denylist.deny_all_for_user(request.user.id, cutoff_timestamp=cutoff)
-        logger.info("User logged out of all sessions.", extra={"user_id": request.user.id})
+        # request.user.id is int | None per django-stubs (AbstractBaseUser's
+        # generic pk type), but DenylistCheckingJWTAuth on this action
+        # guarantees an authenticated, persisted user with a real int pk.
+        user_id = cast(int, request.user.id)
+        self._denylist.deny_all_for_user(user_id, cutoff_timestamp=cutoff)
+        logger.info("User logged out of all sessions.", extra={"user_id": user_id})
         return 200, LogoutResponseSchema(detail="Logged out of all sessions.")

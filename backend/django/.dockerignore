@@ -1,0 +1,31 @@
+# Local virtual environment — the image installs its own dependencies.
+.venv/
+venv/
+env/
+
+# Real secrets file — must never be baked into an image. Runtime config is
+# injected via docker-compose's env_file/environment instead.
+.env
+
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Regenerated at build time (see Dockerfile's collectstatic step).
+staticfiles/
+
+# Local dev database, not used in containers (Postgres runs as its own service).
+db.sqlite3
+db.sqlite3-journal
+
+# VCS/editor metadata irrelevant to the image
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Test/coverage artifacts
+.pytest_cache/
+htmlcov/
+.coverage

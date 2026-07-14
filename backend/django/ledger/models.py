@@ -5,20 +5,24 @@ All currency and quantity fields use `DecimalField(max_digits=19,
 decimal_places=4)` — never float — for strict mathematical precision
 appropriate to a financial system of record. `Trade` and `CashTransaction`
 are immutable, append-only ledger entries (enforced via `save()` overrides)
-so the portfolio's state is always reconstructable from history.
+so the portfolio's state is always reconstructible from history.
 """
 
 import uuid
 from decimal import Decimal
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models
 
+if TYPE_CHECKING:
+    from accounts.models import User
 
-class PortfolioQuerySet(models.QuerySet):
+
+class PortfolioQuerySet(models.QuerySet["Portfolio"]):
     """Scoping helpers so data-isolation lives in one place, not per-view."""
 
-    def for_user(self, user):
+    def for_user(self, user: User) -> PortfolioQuerySet:
         """Return only the Portfolio(s) belonging to `user`.
 
         Centralizes per-user data isolation (OWASP A01 — broken access
@@ -32,16 +36,18 @@ class PortfolioQuerySet(models.QuerySet):
 class Portfolio(models.Model):
     """Top-level account holding cash and linking to positions."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(
+    id: models.UUIDField = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    user: models.OneToOneField = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="portfolio"
     )
     # DecimalField for strict mathematical precision — never use float for money.
-    cash_balance = models.DecimalField(
+    cash_balance: models.DecimalField = models.DecimalField(
         max_digits=19, decimal_places=4, default=Decimal("0.0000")
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     objects = PortfolioQuerySet.as_manager()
 
@@ -53,15 +59,17 @@ class Portfolio(models.Model):
 class Position(models.Model):
     """Aggregate quantity of a specific ticker held in a portfolio."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    portfolio = models.ForeignKey(
+    id: models.UUIDField = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    portfolio: models.ForeignKey = models.ForeignKey(
         Portfolio, on_delete=models.CASCADE, related_name="positions"
     )
-    ticker = models.CharField(max_length=10, db_index=True)
-    quantity = models.DecimalField(
+    ticker: models.CharField = models.CharField(max_length=10, db_index=True)
+    quantity: models.DecimalField = models.DecimalField(
         max_digits=19, decimal_places=4, default=Decimal("0.0000")
     )
-    last_updated = models.DateTimeField(auto_now=True)
+    last_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
@@ -84,35 +92,48 @@ class Trade(models.Model):
         BUY = "BUY", "Buy"
         SELL = "SELL", "Sell"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id: models.UUIDField = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
 
-    # Client-provided (or server-generated) key used to make trade submission idempotent.
-    # Distinct from `id`: this is the caller's dedup token, not the row identity.
-    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    # Client-provided (or server-generated) key used to make trade submission
+    # idempotent. Distinct from `id`: this is the caller's dedup token, not
+    # the row identity.
+    idempotency_key: models.UUIDField = models.UUIDField(
+        unique=True, default=uuid.uuid4, editable=False
+    )
 
-    portfolio = models.ForeignKey(
+    portfolio: models.ForeignKey = models.ForeignKey(
         Portfolio, on_delete=models.PROTECT, related_name="trades"
     )
-    ticker = models.CharField(max_length=10, db_index=True)
-    trade_type = models.CharField(max_length=4, choices=TradeType.choices)
+    ticker: models.CharField = models.CharField(max_length=10, db_index=True)
+    trade_type: models.CharField = models.CharField(
+        max_length=4, choices=TradeType.choices
+    )
 
-    quantity = models.DecimalField(max_digits=19, decimal_places=4)
-    price = models.DecimalField(max_digits=19, decimal_places=4)
-    total_value = models.DecimalField(max_digits=19, decimal_places=4)
+    quantity: models.DecimalField = models.DecimalField(max_digits=19, decimal_places=4)
+    price: models.DecimalField = models.DecimalField(max_digits=19, decimal_places=4)
+    total_value: models.DecimalField = models.DecimalField(
+        max_digits=19, decimal_places=4
+    )
 
-    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    timestamp: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, db_index=True
+    )
 
     class Meta:
         ordering = ["-timestamp"]
         indexes = [
-            models.Index(fields=["portfolio", "timestamp"], name="trade_portfolio_ts_idx"),
+            models.Index(
+                fields=["portfolio", "timestamp"], name="trade_portfolio_ts_idx"
+            ),
         ]
 
     def __str__(self) -> str:
         """Human-readable label used in the Django admin and shell."""
         return f"{self.trade_type} {self.quantity} {self.ticker} @ {self.price}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Persist the trade, rejecting any attempt to modify an existing row.
 
         Lightweight application-layer enforcement of immutability — a Trade
@@ -127,7 +148,9 @@ class Trade(models.Model):
         regardless of whether its PK was assigned client-side or by the DB.
         """
         if not self._state.adding:
-            raise ValueError("Ledger entries (Trades) are immutable and cannot be modified.")
+            raise ValueError(
+                "Ledger entries (Trades) are immutable and cannot be modified."
+            )
         super().save(*args, **kwargs)
 
 
@@ -143,32 +166,45 @@ class CashTransaction(models.Model):
         CREDIT = "CREDIT", "Credit"
         DEBIT = "DEBIT", "Debit"
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id: models.UUIDField = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
 
-    # Client-provided (or server-generated) key used to make transfer submission idempotent.
-    idempotency_key = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    # Client-provided (or server-generated) key used to make transfer
+    # submission idempotent.
+    idempotency_key: models.UUIDField = models.UUIDField(
+        unique=True, default=uuid.uuid4, editable=False
+    )
 
-    portfolio = models.ForeignKey(
+    portfolio: models.ForeignKey = models.ForeignKey(
         Portfolio, on_delete=models.PROTECT, related_name="cash_transactions"
     )
-    direction = models.CharField(max_length=6, choices=Direction.choices)
-    amount = models.DecimalField(max_digits=19, decimal_places=4)
+    direction: models.CharField = models.CharField(
+        max_length=6, choices=Direction.choices
+    )
+    amount: models.DecimalField = models.DecimalField(max_digits=19, decimal_places=4)
     # Snapshot of cash_balance immediately after this entry was applied.
-    resulting_balance = models.DecimalField(max_digits=19, decimal_places=4)
+    resulting_balance: models.DecimalField = models.DecimalField(
+        max_digits=19, decimal_places=4
+    )
 
-    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    timestamp: models.DateTimeField = models.DateTimeField(
+        auto_now_add=True, db_index=True
+    )
 
     class Meta:
         ordering = ["-timestamp"]
         indexes = [
-            models.Index(fields=["portfolio", "timestamp"], name="cashtxn_portfolio_ts_idx"),
+            models.Index(
+                fields=["portfolio", "timestamp"], name="cashtxn_portfolio_ts_idx"
+            ),
         ]
 
     def __str__(self) -> str:
         """Human-readable label used in the Django admin and shell."""
         return f"{self.direction} {self.amount} -> balance {self.resulting_balance}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Persist the transaction, rejecting any attempt to modify an existing row.
 
         Mirrors `Trade.save()`'s immutability enforcement (including the

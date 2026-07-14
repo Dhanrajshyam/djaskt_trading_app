@@ -28,4 +28,4 @@ class InsufficientPositionError(LedgerServiceError):
 
 
 class InvalidTradeRequestError(LedgerServiceError):
-    """Raised for structurally invalid trade requests (bad type, non-positive quantity, etc.)."""
+    """Raised for structurally invalid trade requests (bad type, non-positive qty)."""

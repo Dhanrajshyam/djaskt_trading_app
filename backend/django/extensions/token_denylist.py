@@ -48,7 +48,7 @@ class TokenDenylist:
     connection pool being built per instantiation.
     """
 
-    def __init__(self, redis_client: "redis.Redis | None" = None) -> None:
+    def __init__(self, redis_client: redis.Redis | None = None) -> None:
         """Initialize the denylist, optionally injecting a Redis client.
 
         Accepting a client via constructor injection lets tests supply a
@@ -74,7 +74,7 @@ class TokenDenylist:
         """Return True if the token identified by `jti` has been revoked."""
         return bool(self._redis.exists(DENYLIST_KEY_TEMPLATE.format(jti=jti)))
 
-    def deny_all_for_user(self, user_id, cutoff_timestamp: int) -> None:
+    def deny_all_for_user(self, user_id: int, cutoff_timestamp: int) -> None:
         """Revoke every token issued to `user_id` at or before `cutoff_timestamp`.
 
         Used for "log out everywhere" — one write invalidates every
@@ -91,8 +91,8 @@ class TokenDenylist:
             ex=USER_CUTOFF_TTL_SECONDS,
         )
 
-    def is_denied_for_user(self, user_id, issued_at: int) -> bool:
-        """Return True if a token issued at `issued_at` predates the user's logout-all cutoff.
+    def is_denied_for_user(self, user_id: int, issued_at: int) -> bool:
+        """Return True if `issued_at` predates the user's logout-all cutoff.
 
         `issued_at` is the token's own `iat` claim. Tokens minted after a
         "logout everywhere" call (e.g. from a subsequent fresh login) have

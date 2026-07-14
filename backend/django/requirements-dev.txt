@@ -1,0 +1,8 @@
+ruff==0.15.21
+# mypy version intentionally NOT pinned independently — django-stubs'
+# [compatible-mypy] extra below constrains it to a range that its own
+# Django-introspection plugin is verified against (confirmed via pip:
+# django-stubs 6.0.6 requires mypy>=1.13,<2.2, which conflicts with a
+# standalone mypy==2.3.0 pin). Let pip resolve the exact mypy version from
+# that extra instead of double-pinning and fighting the resolver.
+django-stubs[compatible-mypy]==6.0.6

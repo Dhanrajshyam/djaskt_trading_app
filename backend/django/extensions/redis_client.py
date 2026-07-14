@@ -11,7 +11,6 @@ per-request).
 """
 
 import threading
-from typing import Optional
 
 import redis
 from django.conf import settings
@@ -28,10 +27,13 @@ class RedisClientManager:
     a distinct auth step to postpone.
     """
 
-    _instance: Optional["RedisClientManager"] = None
+    _instance: RedisClientManager | None = None
     _instance_lock = threading.Lock()
+    # Declared here so mypy can resolve the attribute's type — see
+    # extensions.vault.InfisicalVaultManager's identical pattern/comment.
+    _initialized: bool
 
-    def __new__(cls) -> "RedisClientManager":
+    def __new__(cls) -> RedisClientManager:
         """Enforce thread-safe singleton instantiation."""
         if cls._instance is None:
             with cls._instance_lock:

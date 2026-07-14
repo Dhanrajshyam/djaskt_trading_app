@@ -10,7 +10,7 @@ HTML error page.
 import logging
 
 from django.contrib import admin
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.urls import path
 from ninja.errors import ValidationError
 from ninja_extra import NinjaExtraAPI
@@ -39,12 +39,16 @@ def _register_exception_handlers(api: NinjaExtraAPI) -> None:
     """
 
     @api.exception_handler(ValidationError)
-    def handle_validation_error(request: HttpRequest, exc: ValidationError):
+    def handle_validation_error(
+        request: HttpRequest, exc: ValidationError
+    ) -> HttpResponse:
         """Map Ninja's request-schema validation failures to the app's error shape."""
         return api.create_response(request, {"detail": exc.errors}, status=422)
 
     @api.exception_handler(LedgerServiceError)
-    def handle_ledger_service_error(request: HttpRequest, exc: LedgerServiceError):
+    def handle_ledger_service_error(
+        request: HttpRequest, exc: LedgerServiceError
+    ) -> HttpResponse:
         """Catch-all for domain errors a controller action didn't map itself.
 
         409 is the same status the controllers use for business-rule
@@ -55,7 +59,7 @@ def _register_exception_handlers(api: NinjaExtraAPI) -> None:
         return api.create_response(request, {"detail": str(exc)}, status=409)
 
     @api.exception_handler(Exception)
-    def handle_unexpected_error(request: HttpRequest, exc: Exception):
+    def handle_unexpected_error(request: HttpRequest, exc: Exception) -> HttpResponse:
         """Last-resort handler for anything else (infra failures, bugs).
 
         Always logs the full exception server-side and always returns a
