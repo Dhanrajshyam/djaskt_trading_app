@@ -11,7 +11,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
-from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.generic.websocket import AsyncWebsocketConsumer  # type: ignore[import]
 
 if TYPE_CHECKING:
     from accounts.models import User

@@ -27,7 +27,7 @@ extend-select = [
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
 python_version = "3.14"
-exclude = ["migrations/"]
+exclude = ["migrations/", "^.venv/"]
 
 # Moderate-strict baseline for a codebase that already has decent
 # parameter-level type hints: catches real gaps (missing return types,
@@ -65,4 +65,4 @@ django_settings_module = "django_app.settings"
 # Pylance useful for fast in-editor feedback without that noise.
 typeCheckingMode = "basic"
 pythonVersion = "3.14"
-exclude = ["**/migrations", "**/.venv", ".venv"]
+exclude = ["**/migrations", "**/.venv", ".venv/**", "**/node_modules", "**/__pycache__", ".git", "**/.*"]
