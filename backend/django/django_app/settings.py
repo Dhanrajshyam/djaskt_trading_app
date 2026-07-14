@@ -82,6 +82,18 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
+# CORS (django-cors-headers): lets the React frontend, served from a
+# different origin (e.g. the Vite dev server at localhost:5173) call this
+# API from a browser. Wide open by default because this is a local-only
+# educational/paper-trading project with no real money or PII at stake.
+#
+# SECURITY WARNING: CORS_ALLOW_ALL_ORIGINS=True is for local development
+# only. Before deploying anywhere reachable by anyone else, set
+# CORS_ALLOW_ALL_ORIGINS=False and set CORS_ALLOWED_ORIGINS below to the
+# real deployed frontend URL(s) instead.
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
 
 # Application definition
 
@@ -93,6 +105,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "channels",
+    "corsheaders",
     "ninja",
     "ninja_extra",
     # No "ninja_jwt.token_blacklist" — token revocation uses a custom Redis
@@ -135,6 +148,14 @@ MIDDLEWARE = [
     # request. Placed right after SecurityMiddleware so even a request
     # rejected by later middleware still gets a correlated log trail.
     "middlewares.request_log_context.RequestLogContextMiddleware",
+    # Attaches CORS headers (Access-Control-Allow-Origin, etc.) so the React
+    # frontend (a different origin — e.g. localhost:5173 vs this app's
+    # localhost:8000) can call this API from a browser. django-cors-headers'
+    # own docs recommend placing this as early as possible, and always
+    # before CommonMiddleware, so CORS headers are attached even to
+    # responses that CommonMiddleware or later middleware might redirect/
+    # reject.
+    "corsheaders.middleware.CorsMiddleware",
     # Loads/saves the session (request.session) from the configured session
     # store. Must run before AuthenticationMiddleware, which depends on
     # request.session to resolve the logged-in user.

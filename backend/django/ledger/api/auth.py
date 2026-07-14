@@ -58,12 +58,34 @@ class DenylistCheckingJWTAuth(JWTAuth):
     def authenticate(self, request: HttpRequest, token: str) -> AbstractBaseUser:
         """Verify the JWT and reject it if it's been individually or mass-revoked.
 
+        Delegates to `validate_and_get_user`, then attaches the result to
+        `request.user` — the one piece of behavior specific to the REST
+        (HttpRequest-based) auth path. `ledger.realtime.auth` calls
+        `validate_and_get_user` directly for WebSocket connections, which
+        have no `HttpRequest` to attach a user to.
+        """
+        user = self.validate_and_get_user(token)
+        # HttpRequest.user is typed User | AnonymousUser by django-stubs,
+        # but ninja_jwt's authenticate() contract is to attach the resolved
+        # AbstractBaseUser here regardless of concrete type — matches the
+        # base JWTAuth.authenticate() implementation being overridden.
+        request.user = user  # type: ignore[assignment]
+        return user
+
+    def validate_and_get_user(self, token: str) -> AbstractBaseUser:
+        """Verify a raw JWT and return its user, checking Redis revocation.
+
         Decodes the token once (via `get_validated_token`) and reuses that
         result for the single-token denylist check, the "logout everywhere"
         cutoff check, and user resolution, rather than letting the token be
         parsed twice. Checks the cheap single-`jti` denylist first, then
         the per-user cutoff — both are O(1) Redis lookups, ordering here is
         just for readability, not performance.
+
+        This is the shared core both `authenticate()` (REST, has an
+        `HttpRequest`) and `ledger.realtime.auth.authenticate_first_message`
+        (WebSocket, no `HttpRequest`) call, so token validation and
+        revocation logic can't drift between the two transports.
         """
         # ninja_jwt.authentication.JWTAuth.get_validated_token is mistyped
         # upstream as `-> Type[Token]` (a class) when it actually returns a
@@ -86,10 +108,4 @@ class DenylistCheckingJWTAuth(JWTAuth):
         ):
             raise InvalidToken("All sessions for this account have been logged out.")
 
-        user = self.get_user(validated_token)
-        # HttpRequest.user is typed User | AnonymousUser by django-stubs,
-        # but ninja_jwt's authenticate() contract is to attach the resolved
-        # AbstractBaseUser here regardless of concrete type — matches the
-        # base JWTAuth.authenticate() implementation being overridden.
-        request.user = user  # type: ignore[assignment]
-        return user
+        return self.get_user(validated_token)

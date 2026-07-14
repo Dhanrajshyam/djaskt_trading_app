@@ -2,16 +2,25 @@
 
 Trades are executed entirely through the REST contract layer; this consumer
 is a read-only, push-only channel — clients never send trade instructions
-over the socket.
+over the socket. The one message a client ever sends is the first-message
+auth payload (see `ledger.realtime.auth`); after that the channel is
+push-only from the server's side.
 """
 
+import asyncio
 import json
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
 from asgiref.sync import sync_to_async
-from channels.generic.websocket import AsyncWebsocketConsumer  # type: ignore[import]
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+from ledger.realtime.auth import (
+    AUTH_MESSAGE_TIMEOUT_SECONDS,
+    WebSocketAuthError,
+    authenticate_first_message,
+)
 
 if TYPE_CHECKING:
     from accounts.models import User
@@ -38,26 +47,71 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
     """Streams cash balance, position, and trade-history updates for a
     single portfolio.
 
-    Connection is only accepted if the authenticated user owns the requested
-    portfolio, preventing one user from subscribing to another's ledger state
-    (OWASP broken object-level authorization).
+    Authenticates via a "first message" handshake rather than the
+    connection URL or headers (see `ledger.realtime.auth` module docstring
+    for why): the raw WebSocket connection is accepted immediately, but the
+    client must send one JSON message — `{"type": "auth", "access_token":
+    "<jwt>"}` — before anything else happens. Only once that token is
+    validated (same checks the REST API uses, including Redis
+    revocation) and the resolved user is confirmed to own the requested
+    portfolio does the connection actually start receiving data. A
+    connection that never sends a valid auth message within
+    `AUTH_MESSAGE_TIMEOUT_SECONDS` is closed.
     """
 
     async def connect(self) -> None:
-        """Authenticate, authorize, and accept the WebSocket connection.
+        """Accept the raw connection and start the auth-message timeout.
 
-        Closes with code 4401 if the user isn't authenticated, or 4403 if
-        they don't own the requested portfolio (OWASP broken object-level
-        authorization). On success, joins the portfolio's broadcast group
-        and immediately sends a newest-first trade history snapshot.
+        Deliberately does *no* authentication here — the connection is
+        provisionally open but inert until `receive()` gets and validates
+        the first (auth) message. This keeps the JWT out of the connection
+        URL and headers entirely.
         """
         self.portfolio_id = self.scope["url_route"]["kwargs"]["portfolio_id"]
-        user = self.scope.get("user")
+        self._authenticated = False
+        self.group_name: str | None = None
+        self.user_id: int | None = None
 
-        if user is None or not user.is_authenticated:
+        await self.accept()
+
+        # If the client never sends a valid auth message in time, close the
+        # socket rather than leaving it open indefinitely — bounds how many
+        # unauthenticated connections can accumulate.
+        self._auth_timeout_task = asyncio.ensure_future(self._enforce_auth_timeout())
+
+    async def _enforce_auth_timeout(self) -> None:
+        """Close the connection if it isn't authenticated within the timeout."""
+        await asyncio.sleep(AUTH_MESSAGE_TIMEOUT_SECONDS)
+        if not self._authenticated:
             logger.warning(
-                "WebSocket connection rejected: unauthenticated.",
+                "WebSocket connection closed: no auth message received in time.",
                 extra={"portfolio_id": self.portfolio_id},
+            )
+            await self.close(code=4401)
+
+    async def receive(
+        self, text_data: str | None = None, bytes_data: bytes | None = None
+    ) -> None:
+        """Handle the client's first (and only expected) inbound message.
+
+        Everything after the first message is ignored — this is otherwise
+        a push-only channel (see class docstring). The first message must
+        be the auth payload; anything else, or an invalid/expired/revoked
+        token, closes the connection.
+        """
+        if self._authenticated:
+            return  # Push-only channel — ignore anything sent after auth.
+
+        if text_data is None:
+            await self.close(code=4401)
+            return
+
+        try:
+            user = await sync_to_async(authenticate_first_message)(text_data)
+        except WebSocketAuthError as exc:
+            logger.warning(
+                "WebSocket connection rejected: auth message invalid.",
+                extra={"portfolio_id": self.portfolio_id, "reason": str(exc)},
             )
             await self.close(code=4401)
             return
@@ -71,18 +125,19 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
             await self.close(code=4403)
             return
 
+        self._authenticated = True
+        self._auth_timeout_task.cancel()
         self.group_name = portfolio_group_name(self.portfolio_id)
         self.user_id = user.id
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.accept()
         logger.info(
-            "WebSocket connected.",
+            "WebSocket authenticated and connected.",
             extra={"portfolio_id": self.portfolio_id, "user_id": self.user_id},
         )
 
-        # Newest-first trade history snapshot, sent once on connect so the
-        # client has context before any live "portfolio.update" broadcasts
-        # arrive. Trade.Meta.ordering is already "-timestamp".
+        # Newest-first trade history snapshot, sent once on successful auth
+        # so the client has context before any live "portfolio.update"
+        # broadcasts arrive. Trade.Meta.ordering is already "-timestamp".
         trades = await self._get_recent_trades(self.portfolio_id)
         await self.send(
             text_data=json.dumps({"type": "trade_history", "trades": trades})
@@ -90,14 +145,17 @@ class PortfolioConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, code: int) -> None:
         """Leave the portfolio's broadcast group, if it was ever joined."""
-        group_name = getattr(self, "group_name", None)
-        if group_name:
-            await self.channel_layer.group_discard(group_name, self.channel_name)
+        auth_timeout_task = getattr(self, "_auth_timeout_task", None)
+        if auth_timeout_task is not None:
+            auth_timeout_task.cancel()
+
+        if self.group_name:
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
             logger.info(
                 "WebSocket disconnected.",
                 extra={
                     "portfolio_id": getattr(self, "portfolio_id", None),
-                    "user_id": getattr(self, "user_id", None),
+                    "user_id": self.user_id,
                     "close_code": code,
                 },
             )
