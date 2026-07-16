@@ -114,6 +114,7 @@ INSTALLED_APPS = [
     "ninja_jwt",
     "accounts",
     "ledger",
+    "brokerage",
 ]
 
 # accounts.User is the custom user model (email is the login identifier,
