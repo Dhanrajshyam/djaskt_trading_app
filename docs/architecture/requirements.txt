@@ -1,0 +1,4 @@
+# Docs-generation only — not a runtime dependency of the app, so this stays
+# separate from backend/django/requirements.txt. Also requires Graphviz
+# itself (the `dot` binary) installed on the host: https://graphviz.org/download/
+diagrams==0.25.1

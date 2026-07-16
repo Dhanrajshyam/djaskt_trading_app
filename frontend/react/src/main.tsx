@@ -11,6 +11,7 @@ import SignupPage from './pages/SignupPage.tsx'
 import DashboardPage from './pages/DashboardPage.tsx'
 import PortfolioPage from './pages/PortfolioPage.tsx'
 import BrokerageSetupPage from './pages/BrokerageSetupPage.tsx'
+import DesignPage from './pages/DesignPage.tsx'
 
 const queryClient = new QueryClient()
 
@@ -47,6 +48,7 @@ createRoot(document.getElementById('root')!).render(
                 </RequireAuth>
               }
             />
+            <Route path="/design" element={<DesignPage />} />
             <Route path="*" element={<IndexRedirect />} />
           </Route>
         </Routes>
