@@ -87,5 +87,36 @@ services:
       retries: 3
       start_period: 10s
 
+  # Frontend build stage only — no CMD, never run directly (it has no
+  # server process, so `docker compose up` will start and immediately
+  # exit it, which is expected — that's not a failure). Exists purely so
+  # nginx's build below can pull its /app/dist output via
+  # additional_contexts. See frontend/react/Dockerfile's own comment.
+  react-frontend:
+    build:
+      context: ./frontend/react
+      dockerfile: Dockerfile
+    container_name: djaskt_react_frontend
+
+  # Centralized nginx: reverse-proxies /api and /ws to django-ledger-app
+  # and serves the React frontend's static build directly — one place for
+  # all routing/serving logic, and the natural spot to add load balancing
+  # across multiple django-ledger-app replicas later (see nginx/nginx.conf's
+  # comment on the upstream block seam). This is the single public entry
+  # point for the whole stack — nothing else needs a host port published.
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+      additional_contexts:
+        frontend: "service:react-frontend"
+    container_name: djaskt_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - django-ledger-app
+      - react-frontend
+
 # volumes:
 #   pgdata:
