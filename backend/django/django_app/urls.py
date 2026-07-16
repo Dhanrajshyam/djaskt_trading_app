@@ -16,6 +16,7 @@ from ninja.errors import ValidationError
 from ninja_extra import NinjaExtraAPI
 
 from accounts.api import AuthController
+from brokerage.api.router import BrokerageController
 from django_app.health import liveness, readiness
 from ledger.api.router import LedgerController
 from ledger.exceptions import LedgerServiceError
@@ -23,7 +24,7 @@ from ledger.exceptions import LedgerServiceError
 logger = logging.getLogger(__name__)
 
 api = NinjaExtraAPI(title="Djaskt Ledger API", version="1.0.0")
-api.register_controllers(AuthController, LedgerController)
+api.register_controllers(AuthController, LedgerController, BrokerageController)
 
 
 def _register_exception_handlers(api: NinjaExtraAPI) -> None:

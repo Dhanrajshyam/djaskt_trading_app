@@ -12,6 +12,8 @@ python-json-logger==4.1.0
 argon2-cffi==25.1.0
 django-ninja-jwt==5.4.4
 email-validator==2.3.0
+# Outbound HTTP client for calling brokerage login APIs (brokerage/strategies/).
+httpx==0.28.1
 # [standard] extra is required, not optional: it pulls in the `websockets`
 # library uvicorn needs to actually serve WebSocket connections (the
 # portfolio live-update socket, ledger/realtime/) — plain `uvicorn` silently
