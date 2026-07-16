@@ -41,16 +41,23 @@ export function Header() {
           </div>
         </div>
 
-        {email && (
-          <nav className="flex items-center gap-1">
-            <NavLink to="/dashboard" className={NAV_LINK_CLASSES}>
-              Dashboard
-            </NavLink>
-            <NavLink to="/portfolio" className={NAV_LINK_CLASSES}>
-              Portfolio
-            </NavLink>
-          </nav>
-        )}
+        <nav className="flex items-center gap-1">
+          {email && (
+            <>
+              <NavLink to="/dashboard" className={NAV_LINK_CLASSES}>
+                Dashboard
+              </NavLink>
+              <NavLink to="/portfolio" className={NAV_LINK_CLASSES}>
+                Portfolio
+              </NavLink>
+            </>
+          )}
+          {/* Public showcase page — visible whether or not the user is
+              logged in, unlike the trading-feature links above. */}
+          <NavLink to="/design" className={NAV_LINK_CLASSES}>
+            Design
+          </NavLink>
+        </nav>
 
         <div className="flex items-center gap-3">
           {email && (
