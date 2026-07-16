@@ -1,4 +1,4 @@
-import { Activity, LogOut } from 'lucide-react'
+import { Activity, Landmark, LogOut } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router'
 import { useAuthStore } from '../../features/auth/authStore'
 import { logout as logoutRequest } from '../../features/auth/authApi'
@@ -55,6 +55,13 @@ export function Header() {
         <div className="flex items-center gap-3">
           {email && (
             <>
+              <NavLink
+                to="/brokerage-setup"
+                className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-full transition-colors"
+              >
+                <Landmark className="w-3.5 h-3.5" />
+                Brokerage Setup
+              </NavLink>
               <span className="text-sm text-slate-400 hidden sm:inline">{email}</span>
               <button
                 onClick={handleLogout}
