@@ -29,3 +29,9 @@ db.sqlite3-journal
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Linter/type-checker caches — regenerated on demand; baking in a stale
+# cache from the host risks a rebuilt image silently reusing pre-edit
+# analysis results for files that changed since the cache was written.
+.ruff_cache/
+.mypy_cache/
