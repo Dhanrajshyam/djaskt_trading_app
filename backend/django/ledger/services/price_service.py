@@ -28,7 +28,7 @@ class PriceCacheService:
     against data older than the TTL allows.
     """
 
-    def __init__(self, redis_client: "redis.Redis | None" = None) -> None:
+    def __init__(self, redis_client: redis.Redis | None = None) -> None:
         """Initialize the service, optionally injecting a Redis client.
 
         Accepting a client via constructor injection (rather than always
@@ -70,7 +70,7 @@ class PriceCacheService:
                 extra={"ticker": ticker},
             )
             raise PriceUnavailableError(
-                f"No live price available for '{ticker}' (missing or expired cache entry)."
+                f"No live price available for '{ticker}' (missing or expired cache)."
             )
 
         try:
@@ -90,6 +90,8 @@ class PriceCacheService:
                 "Invalid non-positive price cached.",
                 extra={"ticker": ticker, "price": str(price)},
             )
-            raise PriceUnavailableError(f"Invalid non-positive price cached for '{ticker}'.")
+            raise PriceUnavailableError(
+                f"Invalid non-positive price cached for '{ticker}'."
+            )
 
         return price

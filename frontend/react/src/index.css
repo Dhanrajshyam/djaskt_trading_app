@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+/* This app is dark-themed only (matches the reference design) — no
+   light/dark toggle, so we set the color scheme once globally instead of
+   per-component. */
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  /* Custom scrollbar styling for the dark theme — Tailwind has no utility
+     classes for ::-webkit-scrollbar, so this stays as plain CSS. */
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155; /* slate-700 */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569; /* slate-600 */
+}

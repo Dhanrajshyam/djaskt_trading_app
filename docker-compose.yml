@@ -1,0 +1,135 @@
+services:
+  # Ephemeral memory layer — same image/credentials as local_infra_setup's
+  # standalone compose file, so this project can be brought up either way.
+  redis:
+    image: redis:8.8.0
+    container_name: djaskt_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--requirepass", "redis@123", "--protected-mode", "no"]
+    # Redis Stack's bundled modules (Bloom/Search/TimeSeries/ReJSON) take a
+    # few seconds to finish loading on startup — without this healthcheck,
+    # django-ledger-app's plain `depends_on` only waits for this container
+    # to start, not for Redis to actually be ready, so an early WebSocket
+    # connection can hit a Channels redis.exceptions.TimeoutError during
+    # that window (seen when both containers restarted together).
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis@123", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Infisical Vault — secrets management (see backend/django/extensions/vault.py).
+  # Optional: the Django app falls back to .env values if this isn't
+  # configured/reachable (Vault-first, .env-fallback "secret zero" pattern).
+  infisical:
+    image: infisical/infisical:latest
+    container_name: djaskt_vault
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      # Infisical's own database — points at a Postgres reachable from the
+      # host, since the "postgres" service below is commented out by
+      # default (this project's local Postgres currently runs outside
+      # Docker). Uncomment postgres below and switch this to
+      # postgres://... @postgres:5432/... once it's part of this compose
+      # file.
+      - DB_CONNECTION_URI=postgres://djaskt_vault:admin@123@host.docker.internal:5432/djaskt_vault
+      - ENCRYPTION_KEY=6497fba1419736c92d50326e75efcfca
+      - AUTH_SECRET=3c8f9db195e26b1a382c40ef900a6042
+      - SITE_URL=http://localhost:8081
+      - REDIS_URL=redis://:redis@123@redis:6379
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - redis
+
+  # Primary application database. Commented out for now: this project's
+  # local Postgres currently runs outside Docker (django-ledger-app reaches
+  # it via host.docker.internal below). Uncomment to run Postgres in this
+  # compose network instead — then switch django-ledger-app's DB_HOST from
+  # host.docker.internal to "postgres".
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: djaskt_postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=djaskt_ledger
+  #     - POSTGRES_USER=djaskt
+  #     - POSTGRES_PASSWORD=djaskt
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+
+  # Django Ledger & Orchestrator microservice — the ACID-critical system of
+  # record for portfolios, positions, trades, and cash transactions.
+  django-ledger-app:
+    build:
+      context: ./backend/django
+      dockerfile: Dockerfile
+    container_name: djaskt_django_ledger
+    restart: unless-stopped
+    # Non-networking config (DB name/user, security flags, secret
+    # fallback values) comes from the real .env file — a single source of
+    # truth, not duplicated into compose. Only container-network hostnames
+    # are overridden below, since "localhost" means something different
+    # inside a container than on the host.
+    env_file:
+      - ./backend/django/.env
+    environment:
+      - DB_HOST=host.docker.internal # switch to "postgres" once that service is uncommented
+      - REPLICA_DB_HOST=host.docker.internal
+      - REDIS_HOST=redis
+      - INFISICAL_URL=http://infisical:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      infisical:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Frontend build stage only — no CMD, never run directly (it has no
+  # server process, so `docker compose up` will start and immediately
+  # exit it, which is expected — that's not a failure). Exists purely so
+  # nginx's build below can pull its /app/dist output via
+  # additional_contexts. See frontend/react/Dockerfile's own comment.
+  react-frontend:
+    build:
+      context: ./frontend/react
+      dockerfile: Dockerfile
+    container_name: djaskt_react_frontend
+
+  # Centralized nginx: reverse-proxies /api and /ws to django-ledger-app
+  # and serves the React frontend's static build directly — one place for
+  # all routing/serving logic, and the natural spot to add load balancing
+  # across multiple django-ledger-app replicas later (see nginx/nginx.conf's
+  # comment on the upstream block seam). This is the single public entry
+  # point for the whole stack — nothing else needs a host port published.
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+      additional_contexts:
+        frontend: "service:react-frontend"
+    container_name: djaskt_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - django-ledger-app
+      - react-frontend
+
+# volumes:
+#   pgdata:

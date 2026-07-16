@@ -8,6 +8,7 @@ for the variables this file expects at runtime (SECRET_KEY, DB_*, REPLICA_DB_*, 
 import logging
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import environ
 
@@ -43,7 +44,7 @@ configure_logging(
 logger = logging.getLogger(__name__)
 
 
-def _get_secret(key: str, *, default=environ.Env.NOTSET):
+def _get_secret(key: str, *, default: Any = environ.Env.NOTSET) -> Any:
     """Resolve a secret, preferring Infisical Vault over `.env`/OS environment.
 
     Tries Vault first; if it isn't configured (no machine identity set) or
@@ -52,9 +53,17 @@ def _get_secret(key: str, *, default=environ.Env.NOTSET):
     Vault existed. If neither source has a value and no `default` was
     given, `env(...)` raises `ImproperlyConfigured`, so the app never boots
     with an empty or hardcoded secret.
+
+    Typed `Any` in both places deliberately: `default` accepts the
+    `environ.Env.NOTSET` sentinel, plain strings, or booleans depending on
+    the caller (`SECRET_KEY` vs `DEBUG`-style flags), and `django-environ`
+    itself ships no type stubs, so `env(...)`'s return is already `Any` —
+    narrowing this function's signature further would just be inaccurate.
     """
     try:
-        value = vault.get_secret(key, environment=env("INFISICAL_ENVIRONMENT", default="dev"))
+        value = vault.get_secret(
+            key, environment=env("INFISICAL_ENVIRONMENT", default="dev")
+        )
         logger.info("Resolved secret from Vault.", extra={"secret_name": key})
         return value
     except (VaultNotConfiguredError, VaultSecretUnavailableError) as exc:
@@ -73,6 +82,18 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
+# CORS (django-cors-headers): lets the React frontend, served from a
+# different origin (e.g. the Vite dev server at localhost:5173) call this
+# API from a browser. Wide open by default because this is a local-only
+# educational/paper-trading project with no real money or PII at stake.
+#
+# SECURITY WARNING: CORS_ALLOW_ALL_ORIGINS=True is for local development
+# only. Before deploying anywhere reachable by anyone else, set
+# CORS_ALLOW_ALL_ORIGINS=False and set CORS_ALLOWED_ORIGINS below to the
+# real deployed frontend URL(s) instead.
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
 
 # Application definition
 
@@ -84,6 +105,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "channels",
+    "corsheaders",
     "ninja",
     "ninja_extra",
     # No "ninja_jwt.token_blacklist" — token revocation uses a custom Redis
@@ -92,6 +114,7 @@ INSTALLED_APPS = [
     "ninja_jwt",
     "accounts",
     "ledger",
+    "brokerage",
 ]
 
 # accounts.User is the custom user model (email is the login identifier,
@@ -126,6 +149,14 @@ MIDDLEWARE = [
     # request. Placed right after SecurityMiddleware so even a request
     # rejected by later middleware still gets a correlated log trail.
     "middlewares.request_log_context.RequestLogContextMiddleware",
+    # Attaches CORS headers (Access-Control-Allow-Origin, etc.) so the React
+    # frontend (a different origin — e.g. localhost:5173 vs this app's
+    # localhost:8000) can call this API from a browser. django-cors-headers'
+    # own docs recommend placing this as early as possible, and always
+    # before CommonMiddleware, so CORS headers are attached even to
+    # responses that CommonMiddleware or later middleware might redirect/
+    # reject.
+    "corsheaders.middleware.CorsMiddleware",
     # Loads/saves the session (request.session) from the configured session
     # store. Must run before AuthenticationMiddleware, which depends on
     # request.session to resolve the logged-in user.
@@ -186,7 +217,7 @@ ASGI_APPLICATION = "django_app.asgi.application"
 # env vars / Vault secret name need to change, no code here does.
 
 
-def _build_database_config(*, prefix: str, secret_name: str) -> dict:
+def _build_database_config(*, prefix: str, secret_name: str) -> dict[str, Any]:
     """Build a Django DATABASES entry from discrete env vars + a Vault-backed password.
 
     `prefix` namespaces the plain (non-secret) connection parameters in
@@ -209,7 +240,9 @@ DATABASES = {
     "default": _build_database_config(prefix="DB", secret_name="DB_PASSWORD"),
     # TODO: point at a dedicated read-replica host once one is provisioned —
     # currently the same physical database as "default".
-    "replica": _build_database_config(prefix="REPLICA_DB", secret_name="REPLICA_DB_PASSWORD"),
+    "replica": _build_database_config(
+        prefix="REPLICA_DB", secret_name="REPLICA_DB_PASSWORD"
+    ),
 }
 # ACID-critical writes (SELECT FOR UPDATE inside transaction.atomic) require the
 # ORM to hold a single real connection per request rather than silently reopening one.
@@ -244,7 +277,9 @@ CHANNEL_LAYERS = {
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -332,4 +367,6 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False
+)
