@@ -1,0 +1,21 @@
+# Installed fresh inside the image — never copy the host's node_modules in.
+node_modules/
+
+# Rebuilt inside the image by `npm run build` (see Dockerfile).
+dist/
+
+# Dev-only config (points at localhost:8000, not meaningful inside a
+# container) and any local secrets — never baked into an image. The
+# containerized build uses .env.production instead (see vite.config.ts /
+# Vite's own env-file convention), which IS copied in since it's committed.
+.env.local
+.env*.local
+
+# VCS/editor metadata irrelevant to the image
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Coverage/test artifacts, if/when tests are added
+coverage/
