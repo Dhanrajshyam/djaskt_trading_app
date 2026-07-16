@@ -26,9 +26,9 @@ export function AnalyticsPanel() {
       <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-2">
         <div className="flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-400" />
-          <h2 className="font-semibold text-white">Analytics</h2>
+          <h2 className="font-semibold text-white">Analytics (Flask)</h2>
         </div>
-        <Badge tone="warning">Reference only</Badge>
+        <Badge tone="warning">Disconnected</Badge>
       </div>
 
       <p className="text-xs text-slate-400 mb-4">

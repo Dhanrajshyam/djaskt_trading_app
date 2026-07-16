@@ -1,11 +1,10 @@
-import { Briefcase, DollarSign, Wallet } from 'lucide-react'
+import { Briefcase, IndianRupee, Wallet } from 'lucide-react'
 import { usePortfolio } from '../features/trading/usePortfolio'
 import { usePortfolioStream } from '../features/trading/usePortfolioStream'
 import { formatMoney } from '../lib/format'
 import { Card } from '../components/ui/Card'
 import { StatTile } from '../components/ui/StatTile'
 import { Badge } from '../components/ui/Badge'
-import { TradeForm } from '../features/trading/TradeForm'
 import { CashTransferForm } from '../features/trading/CashTransferForm'
 import { TradeHistoryList } from '../features/trading/TradeHistoryList'
 import { HoldingsList } from '../features/trading/HoldingsList'
@@ -19,7 +18,7 @@ export default function PortfolioPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Portfolio</h1>
-          <p className="text-sm text-slate-400">Cash, holdings, and trade execution.</p>
+          <p className="text-sm text-slate-400">Cash, holdings, and trade history.</p>
         </div>
         <LiveStatusBadge status={wsStatus} />
       </div>
@@ -29,13 +28,13 @@ export default function PortfolioPage() {
 
       {portfolio && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* LEFT: cash + holdings */}
+          {/* LEFT: cash */}
           <div className="lg:col-span-4 space-y-6">
             <Card>
               <StatTile
                 label="Available Cash"
                 value={formatMoney(portfolio.cash_balance)}
-                icon={<DollarSign className="w-5 h-5 text-emerald-400" />}
+                icon={<IndianRupee className="w-5 h-5 text-emerald-400" />}
               />
             </Card>
 
@@ -46,22 +45,15 @@ export default function PortfolioPage() {
               </div>
               <CashTransferForm />
             </Card>
-
-            <Card>
-              <div className="flex items-center gap-2 mb-4 border-b border-slate-800 pb-2">
-                <Briefcase className="w-5 h-5 text-purple-400" />
-                <h2 className="font-semibold text-white">Holdings</h2>
-              </div>
-              <HoldingsList positions={portfolio.positions} />
-            </Card>
           </div>
 
-          {/* MIDDLE: trade execution */}
+          {/* MIDDLE: holdings */}
           <Card className="lg:col-span-4">
-            <h2 className="font-semibold text-white mb-4 border-b border-slate-800 pb-2">
-              Trade Execution
-            </h2>
-            <TradeForm />
+            <div className="flex items-center gap-2 mb-4 border-b border-slate-800 pb-2">
+              <Briefcase className="w-5 h-5 text-purple-400" />
+              <h2 className="font-semibold text-white">Holdings</h2>
+            </div>
+            <HoldingsList positions={portfolio.positions} />
           </Card>
 
           {/* RIGHT: trade history */}

@@ -25,7 +25,7 @@ export function CashTransferForm() {
       const result = await cashTransferMutation.mutateAsync({ direction, amount })
       setFeedback({
         tone: 'success',
-        message: `${direction === 'CREDIT' ? 'Deposited' : 'Withdrew'} $${result.amount}. New balance: $${result.resulting_balance}.`,
+        message: `${direction === 'CREDIT' ? 'Deposited' : 'Withdrew'} ₹${result.amount}. New balance: ₹${result.resulting_balance}.`,
       })
     } catch (err) {
       setFeedback({
