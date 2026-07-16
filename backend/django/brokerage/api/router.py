@@ -31,6 +31,7 @@ from brokerage.exceptions import (
 )
 from brokerage.models import Brokerage, UserBrokerageLink
 from brokerage.services.orchestrator import BrokerAuthOrchestrator
+from brokerage.services.session_cache import BrokerSessionCache
 from ledger.api.auth import DenylistCheckingJWTAuth
 
 
@@ -44,8 +45,9 @@ class BrokerageController:
     """
 
     def __init__(self) -> None:
-        """Initialize the controller with its own orchestrator instance."""
+        """Initialize the controller with its own orchestrator and session cache."""
         self._orchestrator = BrokerAuthOrchestrator()
+        self._session_cache = BrokerSessionCache()
 
     @http_post(
         "/links/",
@@ -89,6 +91,9 @@ class BrokerageController:
             id=link.id,
             brokerage_name=brokerage.name,
             user_brokerage_data=link.user_brokerage_data,
+            # A link just created has never logged in yet — no need to
+            # check Redis for a session that can't exist.
+            is_connected=False,
         )
 
     @http_get("/links/", response={200: list[UserBrokerageLinkResponseSchema]})
@@ -101,6 +106,8 @@ class BrokerageController:
                 id=link.id,
                 brokerage_name=link.brokerage.name,
                 user_brokerage_data=link.user_brokerage_data,
+                is_connected=self._session_cache.get(user.id, link.brokerage.name)
+                is not None,
             )
             for link in links
         ]

@@ -41,11 +41,18 @@ class UserBrokerageLinkCreateSchema(Schema):
 
 
 class UserBrokerageLinkResponseSchema(Schema):
-    """Response body for a user's brokerage link."""
+    """Response body for a user's brokerage link.
+
+    `is_connected` reflects whether a session is currently cached in Redis
+    for this user+brokerage (`BrokerSessionCache.get()`), not anything
+    stored on the `UserBrokerageLink` row itself — a link can exist while
+    disconnected (never logged in, or the IST-midnight TTL expired).
+    """
 
     id: UUID
     brokerage_name: str
     user_brokerage_data: dict[str, Any]
+    is_connected: bool
 
 
 class BrokerLoginRequestSchema(Schema):

@@ -82,11 +82,13 @@ class BaseBrokerAuthStrategy(ABC):
         brokerage_name = self.endpoint.brokerage.name
         try:
             self._validate_credentials(link_data, login_secrets)
+            logger.info(f"{link_data=}, {login_secrets=} validated for broker auth.")
             raw_response = self._call_broker_api(link_data, login_secrets)
         except (InvalidBrokerCredentialsError, BrokerAPIError):
             logger.warning(
                 "Broker auth call failed.",
                 extra={"brokerage_name": brokerage_name, "user_id": user.id},
+                exc_info=True,
             )
             raise
         session = self._parse_response(raw_response, link_data)
