@@ -10,6 +10,7 @@ import LoginPage from './pages/LoginPage.tsx'
 import SignupPage from './pages/SignupPage.tsx'
 import DashboardPage from './pages/DashboardPage.tsx'
 import PortfolioPage from './pages/PortfolioPage.tsx'
+import BrokerageSetupPage from './pages/BrokerageSetupPage.tsx'
 
 const queryClient = new QueryClient()
 
@@ -35,6 +36,14 @@ createRoot(document.getElementById('root')!).render(
               element={
                 <RequireAuth>
                   <PortfolioPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/brokerage-setup"
+              element={
+                <RequireAuth>
+                  <BrokerageSetupPage />
                 </RequireAuth>
               }
             />

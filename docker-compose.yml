@@ -8,6 +8,17 @@ services:
     ports:
       - "6379:6379"
     command: ["redis-server", "--requirepass", "redis@123", "--protected-mode", "no"]
+    # Redis Stack's bundled modules (Bloom/Search/TimeSeries/ReJSON) take a
+    # few seconds to finish loading on startup — without this healthcheck,
+    # django-ledger-app's plain `depends_on` only waits for this container
+    # to start, not for Redis to actually be ready, so an early WebSocket
+    # connection can hit a Channels redis.exceptions.TimeoutError during
+    # that window (seen when both containers restarted together).
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis@123", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # Infisical Vault — secrets management (see backend/django/extensions/vault.py).
   # Optional: the Django app falls back to .env values if this isn't
@@ -76,8 +87,10 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - infisical
+      redis:
+        condition: service_healthy
+      infisical:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
