@@ -1,4 +1,4 @@
-Django==6.0.7
+Django==6.0.8
 django-cors-headers==4.9.0
 django-ninja==1.6.2
 django-ninja-extra==0.31.5
